@@ -96,8 +96,7 @@ export class MapComponent implements AfterViewInit {
 					this.camera.updateProjectionMatrix();
 				}
 
-				renderer.render(this.scene, this.camera);
-				this.updateLabels();
+				this.dataService.drawMap()
 				hasUpdate = false;
 				this.loading = false;
 			}
