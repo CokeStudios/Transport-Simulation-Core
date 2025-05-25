@@ -25,6 +25,7 @@ public final class Depot extends DepotSchema implements Utilities {
 	@Nullable
 	private OnGenerationComplete onGenerationComplete;
 	private long repeatDepartures;
+	private long departureMillis;
 
 	public final ObjectArrayList<Route> routes = new ObjectArrayList<>();
 
@@ -281,7 +282,7 @@ public final class Depot extends DepotSchema implements Utilities {
 			} else if (data instanceof Simulator) {
 				final Simulator simulator = (Simulator) data;
 				final long offsetMillis = simulator.getMillisOfGameMidnight();
-				final long currentMillis = data.getCurrentMillis();
+				long currentMillis = data.getCurrentMillis();
 				long lastDeparture = Long.MIN_VALUE;
 
 				if (gameMillisPerDay > 0) {
@@ -302,10 +303,11 @@ public final class Depot extends DepotSchema implements Utilities {
 					while (true) {
 						final long newDeparture = Math.max(hourMinMillis, lastDeparture + intervalMillis);
 						if (newDeparture < hourMaxMillis) {
-							if ((offsetMillis + newDeparture * gameMillisPerDay / MILLIS_PER_DAY - 86400000) > currentMillis) {
-								departures.add(offsetMillis + newDeparture * gameMillisPerDay / MILLIS_PER_DAY - 86400000);
+							departureMillis = offsetMillis + newDeparture * gameMillisPerDay / MILLIS_PER_DAY;
+							if ((departureMillis - gameMillisPerDay) > currentMillis) {
+								departures.add(departureMillis - gameMillisPerDay);
 							}
-							departures.add(offsetMillis + newDeparture * gameMillisPerDay / MILLIS_PER_DAY);
+							departures.add(departureMillis);
 							lastDeparture = newDeparture;
 						} else {
 							break;
