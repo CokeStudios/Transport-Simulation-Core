@@ -294,14 +294,14 @@ public final class Depot extends DepotSchema implements Utilities {
 						continue;
 					}
 
-					final long intervalMillis = 14400000 / frequency;
-					final long hourMinMillis = MILLIS_PER_HOUR * i;
-					final long hourMaxMillis = MILLIS_PER_HOUR * (i + 1);
+					final long intervalMillis = gameMillisPerDay / frequency;
+					final long hourMinMillis = (gameMillisPerDay / HOURS_PER_DAY) * i;
+					final long hourMaxMillis = (gameMillisPerDay / HOURS_PER_DAY) * (i + 1);
 
 					while (true) {
 						final long newDeparture = Math.max(hourMinMillis, lastDeparture + intervalMillis);
 						if (newDeparture < hourMaxMillis) {
-							departures.add(offsetMillis + newDeparture * gameMillisPerDay / MILLIS_PER_DAY);
+							departures.add(offsetMillis + newDeparture * gameMillisPerDay / gameMillisPerDay);
 							lastDeparture = newDeparture;
 						} else {
 							break;
