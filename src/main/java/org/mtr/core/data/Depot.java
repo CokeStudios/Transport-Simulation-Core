@@ -301,7 +301,7 @@ public final class Depot extends DepotSchema implements Utilities {
 					while (true) {
 						final long newDeparture = Math.max(hourMinMillis, lastDeparture + intervalMillis);
 						if (newDeparture < hourMaxMillis) {
-							departures.add(offsetMillis + newDeparture * gameMillisPerDay / gameMillisPerDay);
+							departures.add(offsetMillis + newDeparture);
 							lastDeparture = newDeparture;
 						} else {
 							break;
