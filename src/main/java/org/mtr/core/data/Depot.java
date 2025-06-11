@@ -277,6 +277,7 @@ public final class Depot extends DepotSchema implements Utilities {
 			}
 		} else {
 			if (useRealTime) {
+				Main.LOGGER.warn("RealTime schedule: " + realTimeDepartures.toString());
 				departures.addAll(realTimeDepartures);
 			} else if (data instanceof Simulator) {
 				final Simulator simulator = (Simulator) data;
@@ -308,6 +309,7 @@ public final class Depot extends DepotSchema implements Utilities {
 						}
 					}
 				}
+				Main.LOGGER.warn("MinecraftTime schedule: " + departures.toString());
 			}
 		}
 
