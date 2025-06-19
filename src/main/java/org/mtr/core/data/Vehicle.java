@@ -455,9 +455,6 @@ public class Vehicle extends VehicleSchema implements Utilities {
 			vehicleExtraData.setSpeedTarget(0);
 			updateDeviation();
 			if (!isClientside) {
-				if (manualCooldown > 0) {
-					atoOverride = false;
-				}
 				vehicleExtraData.setPowerLevel(Math.min(vehicleExtraData.getPowerLevel(), -1));
 			}
 		} else if (vehicleExtraData.getRepeatIndex2() > 0 && railProgress >= vehicleExtraData.getTotalDistance()) {
