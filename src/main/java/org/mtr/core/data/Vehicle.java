@@ -33,6 +33,7 @@ public class Vehicle extends VehicleSchema implements Utilities {
 	private long manualCooldown;
 	private long doorCooldown;
 	private boolean atoOverride;
+	private boolean previousAtoOverride = false;
 
 	public final VehicleExtraData vehicleExtraData;
 	private final Siding siding;
@@ -163,7 +164,9 @@ public class Vehicle extends VehicleSchema implements Utilities {
 			railProgress += Siding.ACCELERATION_DEFAULT;
 			elapsedDwellTime = 0;
 			speed = Siding.ACCELERATION_DEFAULT;
-			atoOverride = false;
+			if (!previousAtoOverride) {
+				atoOverride = false;
+			}
 			vehicleExtraData.setSpeedTarget(speed);
 			setNextStoppingIndex();
 
@@ -246,9 +249,11 @@ public class Vehicle extends VehicleSchema implements Utilities {
 					if (vehicleRidingEntity.manualAccelerate()) {
 						vehicleExtraData.setPowerLevel(Math.min(powerLevel + 1, MAX_POWER_LEVEL));
 						atoOverride = false;
+						previousAtoOverride = false;
 					} else if (vehicleRidingEntity.manualBrake()) {
 						vehicleExtraData.setPowerLevel(Math.max(powerLevel - 1, -MAX_POWER_LEVEL - 1));
 						atoOverride = false;
+						previousAtoOverride = false;
 					}
 				}
 			});
@@ -404,6 +409,7 @@ public class Vehicle extends VehicleSchema implements Utilities {
 				// If blocked ahead, slow down (using normal deceleration for automatic and emergency brake for manual)
 				speedTarget = -1;
 				powerLevel = Math.min(vehicleExtraData.getPowerLevel(), isCurrentlyManual() && hardStoppingDistance > 2 ? -MAX_POWER_LEVEL - 1 : -POWER_LEVEL_RATIO);
+				previousAtoOverride = atoOverride;
 				atoOverride = true;
 			} else {
 				if (isCurrentlyManual()) {
@@ -455,6 +461,9 @@ public class Vehicle extends VehicleSchema implements Utilities {
 			vehicleExtraData.setSpeedTarget(0);
 			updateDeviation();
 			if (!isClientside) {
+				if (!previousAtoOverride) {
+					atoOverride = false;
+				}
 				vehicleExtraData.setPowerLevel(Math.min(vehicleExtraData.getPowerLevel(), -1));
 			}
 		} else if (vehicleExtraData.getRepeatIndex2() > 0 && railProgress >= vehicleExtraData.getTotalDistance()) {
