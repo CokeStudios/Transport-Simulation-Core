@@ -5,7 +5,6 @@ import org.mtr.core.data.TransportMode;
 import org.mtr.core.serializer.ReaderBase;
 import org.mtr.core.tool.Angle;
 import org.mtr.core.tool.EnumHelper;
-import org.mtr.core.tool.Utilities;
 import org.mtr.core.tool.Vector;
 import org.mtr.legacy.generated.data.RailNodeConnectionSchema;
 
@@ -55,13 +54,13 @@ public final class RailNodeConnection extends RailNodeConnectionSchema {
 	private Angle getAngle(boolean reverse) {
 		final Vector vector1 = getPosition(0, reverse);
 		final Vector vector2 = getPosition(0.1, reverse);
-		return Angle.fromAngle((float) Math.toDegrees(Math.atan2(vector2.z - vector1.z, vector2.x - vector1.x)));
+		return Angle.fromAngle((float) Math.toDegrees(Math.atan2(vector2.z() - vector1.z(), vector2.x() - vector1.x())));
 	}
 
 	private Vector getPosition(double rawValue, boolean reverse) {
 		final double count1 = Math.abs(t_end_1 - t_start_1);
 		final double count2 = Math.abs(t_end_2 - t_start_2);
-		final double clampedValue = Utilities.clamp(rawValue, 0, count1 + count2);
+		final double clampedValue = Math.clamp(rawValue, 0, count1 + count2);
 		final double value = reverse ? count1 + count2 - clampedValue : clampedValue;
 
 		if (value <= count1) {

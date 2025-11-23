@@ -68,26 +68,26 @@ public class Lift extends LiftSchema implements Utilities {
 			if (instructions.isEmpty()) {
 				speed = Math.max(Math.abs(speed) - Siding.ACCELERATION_DEFAULT * millisElapsed, 0) * Math.signum(speed);
 			} else {
-				final long nextInstructionProgress = getProgress(instructions.get(0).getFloor());
+				final long nextInstructionProgress = getProgress(instructions.getFirst().getFloor());
 
 				if (speed * speed / 2 / Siding.ACCELERATION_DEFAULT > Math.abs(nextInstructionProgress - railProgress)) {
 					speed = Math.max(Math.abs(speed) - Siding.ACCELERATION_DEFAULT * millisElapsed, Siding.ACCELERATION_DEFAULT) * Math.signum(speed);
 				} else {
-					speed = Utilities.clamp(speed + Siding.ACCELERATION_DEFAULT * millisElapsed * Math.signum(nextInstructionProgress - railProgress), -MAX_SPEED, MAX_SPEED);
+					speed = Math.clamp(speed + Siding.ACCELERATION_DEFAULT * millisElapsed * Math.signum(nextInstructionProgress - railProgress), -MAX_SPEED, MAX_SPEED);
 				}
 
 				if (Math.abs(railProgress - nextInstructionProgress) <= Math.abs(speed * millisElapsed)) {
 					railProgress = nextInstructionProgress;
 					speed = 0;
 					if (!isClientside) {
-						instructions.remove(0);
+						instructions.removeFirst();
 						stoppingCoolDown = STOPPING_TIME;
 						needsUpdate = true;
 					}
 				}
 			}
 
-			railProgress = Utilities.clamp(railProgress + speed * millisElapsed, 0, getProgress(Integer.MAX_VALUE));
+			railProgress = Math.clamp(railProgress + speed * millisElapsed, 0, getProgress(Integer.MAX_VALUE));
 		}
 
 		if (data instanceof Simulator) {
@@ -205,9 +205,9 @@ public class Lift extends LiftSchema implements Utilities {
 			final Vector position1 = Utilities.getElement(trackPositions, trackIndex, new Vector(0, 0, 0));
 			final Vector position2 = Utilities.getElement(trackPositions, trackIndex + 1, new Vector(0, 0, 0));
 			return new Vector(
-					getValueFromPercentage(trackPercentage, position1.x, position2.x),
-					getValueFromPercentage(trackPercentage, position1.y, position2.y),
-					getValueFromPercentage(trackPercentage, position1.z, position2.z)
+					getValueFromPercentage(trackPercentage, position1.x(), position2.x()),
+					getValueFromPercentage(trackPercentage, position1.y(), position2.y()),
+					getValueFromPercentage(trackPercentage, position1.z(), position2.z())
 			);
 		}, new Vector(0, 0, 0));
 	}
@@ -254,7 +254,7 @@ public class Lift extends LiftSchema implements Utilities {
 		if (instructions.isEmpty()) {
 			return LiftDirection.NONE;
 		} else {
-			return LiftDirection.fromDifference(getProgress(instructions.get(0).getFloor()) - railProgress);
+			return LiftDirection.fromDifference(getProgress(instructions.getFirst().getFloor()) - railProgress);
 		}
 	}
 
@@ -350,7 +350,7 @@ public class Lift extends LiftSchema implements Utilities {
 	 * @return the distance along the track from the very first floor
 	 */
 	private long getProgress(int floor) {
-		return distances.isEmpty() ? 0 : distances.getLong(Utilities.clamp(floor, 0, distances.size() - 1));
+		return distances.isEmpty() ? 0 : distances.getLong(Math.clamp(floor, 0, distances.size() - 1));
 	}
 
 	private <T> T currentFloorCallback(PercentageCallback<T> percentageCallback, T defaultValue) {

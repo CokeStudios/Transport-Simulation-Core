@@ -11,6 +11,7 @@ import it.unimi.dsi.fastutil.objects.ObjectObjectImmutablePair;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import org.mtr.core.Main;
 import org.mtr.core.generated.data.VehicleSchema;
+import org.mtr.core.path.SidingPathFinder;
 import org.mtr.core.serializer.ReaderBase;
 import org.mtr.core.simulation.Simulator;
 import org.mtr.core.tool.Utilities;
@@ -128,7 +129,7 @@ public class Vehicle extends VehicleSchema implements Utilities {
 
 		stoppingCooldown = Math.max(0, stoppingCooldown - millisElapsed);
 
-		if (vehiclePositions != null) {
+		if (vehiclePositions != null && vehiclePositions.size() > 1) {
 			writeVehiclePositions(currentIndex, vehiclePositions.get(1));
 		}
 
@@ -341,15 +342,16 @@ public class Vehicle extends VehicleSchema implements Utilities {
 				}
 
 				final long deviationAdjustment;
-				if (siding != null && elapsedDwellTime >= DOOR_DELAY + DOOR_MOVE_TIME && elapsedDwellTime < doorCloseTime) {
+				if (siding != null && elapsedDwellTime >= DOOR_DELAY + DOOR_MOVE_TIME && elapsedDwellTime < doorCloseTime && deviation != 0) {
 					if (deviation > 0) {
 						// If delayed
 						deviationAdjustment = Math.min(deviation, (doorCloseTime - elapsedDwellTime) * siding.getDelayedVehicleReduceDwellTimePercentage() / 100);
+						deviation = 0;
 					} else {
 						// If early
 						deviationAdjustment = siding.getEarlyVehicleIncreaseDwellTime() ? Math.max(deviation, -millisElapsed) : 0;
+						deviation -= deviationAdjustment;
 					}
-					deviation -= deviationAdjustment;
 				} else {
 					deviationAdjustment = 0;
 				}
@@ -672,12 +674,12 @@ public class Vehicle extends VehicleSchema implements Utilities {
 			return null;
 		} else {
 			final Vector vector = pathData.getPosition(value - pathData.getStartDistance());
-			if (transportMode == TransportMode.AIRPLANE && pathData.getSpeedLimitKilometersPerHour() == 900 && pathData.isDescending()) {
+			if (transportMode == TransportMode.AIRPLANE && pathData.getSpeedLimitKilometersPerHour() == SidingPathFinder.AIRPLANE_SPEED && pathData.isDescending()) {
 				if (overrideY.isEmpty()) {
-					overrideY.add(vector.y);
+					overrideY.add(vector.y());
 					return vector;
 				} else {
-					return new Vector(vector.x, overrideY.getDouble(0), vector.z);
+					return new Vector(vector.x(), overrideY.getDouble(0), vector.z());
 				}
 			} else {
 				return vector;
@@ -687,20 +689,20 @@ public class Vehicle extends VehicleSchema implements Utilities {
 
 	private ObjectObjectImmutablePair<Vector, Vector> getBogiePositions(double value, DoubleArrayList overrideY) {
 		final double lowerBound = railProgress - vehicleExtraData.getTotalVehicleLength();
-		final double clampedValue = Utilities.clamp(value, lowerBound, railProgress);
+		final double clampedValue = Math.clamp(value, lowerBound, railProgress);
 		final double value1;
 		final double value2;
-		final double clamp = Utilities.clamp(Math.min(Math.abs(clampedValue - lowerBound), Math.abs(clampedValue - railProgress)), 0.1, 1);
-		value1 = Utilities.clamp(clampedValue + (reversed ? -clamp : clamp), lowerBound, railProgress - 0.001);
-		value2 = Utilities.clamp(clampedValue - (reversed ? -clamp : clamp), lowerBound, railProgress - 0.001);
+		final double clamp = Math.clamp(Math.min(Math.abs(clampedValue - lowerBound), Math.abs(clampedValue - railProgress)), 0.1, 1);
+		value1 = Math.clamp(clampedValue + (reversed ? -clamp : clamp), lowerBound, railProgress - 0.001);
+		value2 = Math.clamp(clampedValue - (reversed ? -clamp : clamp), lowerBound, railProgress - 0.001);
 		final Vector position1 = getPosition(value1, overrideY);
 		final Vector position2 = getPosition(value2, overrideY);
 		return position1 == null || position2 == null ? new ObjectObjectImmutablePair<>(new Vector(value1, 0, 0), new Vector(value2, 0, 0)) : new ObjectObjectImmutablePair<>(position1, position2);
 	}
 
 	private static DoubleDoubleImmutablePair getBlockedBounds(PathData pathData, double lowerRailProgress, double upperRailProgress) {
-		final double distanceFromStart = Utilities.clamp(lowerRailProgress, pathData.getStartDistance(), pathData.getEndDistance()) - pathData.getStartDistance();
-		final double distanceToEnd = pathData.getEndDistance() - Utilities.clamp(upperRailProgress, pathData.getStartDistance(), pathData.getEndDistance());
+		final double distanceFromStart = Math.clamp(lowerRailProgress, pathData.getStartDistance(), pathData.getEndDistance()) - pathData.getStartDistance();
+		final double distanceToEnd = pathData.getEndDistance() - Math.clamp(upperRailProgress, pathData.getStartDistance(), pathData.getEndDistance());
 		return new DoubleDoubleImmutablePair(pathData.reversePositions ? distanceToEnd : distanceFromStart, pathData.getEndDistance() - pathData.getStartDistance() - (pathData.reversePositions ? distanceFromStart : distanceToEnd));
 	}
 }

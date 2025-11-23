@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.ints.IntIntImmutablePair;
 import it.unimi.dsi.fastutil.objects.*;
 import org.mtr.core.Main;
 import org.mtr.core.data.*;
+import org.mtr.core.directions.DirectionsFinder;
 import org.mtr.core.serializer.SerializedDataBase;
 import org.mtr.core.serializer.SerializedDataBaseWithId;
 import org.mtr.core.servlet.MessageQueue;
@@ -29,6 +30,7 @@ public class Simulator extends Data implements Utilities {
 	public final ObjectArraySet<Client> clients = new ObjectArraySet<>();
 	public final String dimension;
 	public final String[] dimensions;
+	public final DirectionsFinder directionsFinder = new DirectionsFinder(this);
 
 	private final FileLoader<Station> fileLoaderStations;
 	private final FileLoader<Platform> fileLoaderPlatforms;
@@ -221,6 +223,20 @@ public class Simulator extends Data implements Utilities {
 		ridingVehicleIds.removeLong(uuid);
 	}
 
+	@Nullable
+	public Platform getNextPlatformOfRidingVehicle(UUID uuid) {
+		final Platform[] platform = {null};
+		sidings.forEach(siding -> siding.iterateVehiclesAndRidingEntities((vehicleExtraData, vehicleRidingEntity) -> {
+			if (vehicleRidingEntity.uuid.equals(uuid)) {
+				final Platform checkPlatform = platformIdMap.get(vehicleExtraData.getNextPlatformId());
+				if (checkPlatform != null) {
+					platform[0] = checkPlatform;
+				}
+			}
+		}));
+		return platform[0];
+	}
+
 	/**
 	 * Simulates the system in one-second intervals until the simulation is all caught up
 	 *
@@ -251,11 +267,14 @@ public class Simulator extends Data implements Utilities {
 
 		try {
 			vehiclePositions.forEach(vehiclePositionsForTransportMode -> {
-				vehiclePositionsForTransportMode.remove(0);
+				if (!vehiclePositionsForTransportMode.isEmpty()) {
+					vehiclePositionsForTransportMode.removeFirst();
+				}
 				vehiclePositionsForTransportMode.add(new Object2ObjectAVLTreeMap<>());
 			});
 
-			rails.forEach(rail -> rail.tick(this));
+			rails.forEach(rail -> rail.tick1(this));
+			rails.forEach(rail -> rail.tick2(millisElapsed));
 			depots.forEach(Depot::tick);
 
 			// Try setting a siding's default path data
@@ -276,6 +295,9 @@ public class Simulator extends Data implements Utilities {
 
 			// Process queued runs
 			queuedRuns.process(Runnable::run);
+
+			// Directions
+			directionsFinder.tick();
 
 			// Process messages
 			messageQueueC2S.process(queueObject -> queueObject.runCallback(OperationProcessor.process(queueObject.key, queueObject.data, this)));
@@ -322,32 +344,6 @@ public class Simulator extends Data implements Utilities {
 		return changedCount > 0 || deletedCount > 0;
 	}
 
-	private static class FileLoaderHolder {
-
-		private final FileLoader<Station> fileLoaderStations;
-		private final FileLoader<Platform> fileLoaderPlatforms;
-		private final FileLoader<Siding> fileLoaderSidings;
-		private final FileLoader<Route> fileLoaderRoutes;
-		private final FileLoader<Depot> fileLoaderDepots;
-		private final FileLoader<Lift> fileLoaderLifts;
-		private final FileLoader<Rail> fileLoaderRails;
-
-		private FileLoaderHolder(
-				FileLoader<Station> fileLoaderStations,
-				FileLoader<Platform> fileLoaderPlatforms,
-				FileLoader<Siding> fileLoaderSidings,
-				FileLoader<Route> fileLoaderRoutes,
-				FileLoader<Depot> fileLoaderDepots,
-				FileLoader<Lift> fileLoaderLifts,
-				FileLoader<Rail> fileLoaderRails
-		) {
-			this.fileLoaderStations = fileLoaderStations;
-			this.fileLoaderPlatforms = fileLoaderPlatforms;
-			this.fileLoaderSidings = fileLoaderSidings;
-			this.fileLoaderRoutes = fileLoaderRoutes;
-			this.fileLoaderDepots = fileLoaderDepots;
-			this.fileLoaderLifts = fileLoaderLifts;
-			this.fileLoaderRails = fileLoaderRails;
-		}
+	private record FileLoaderHolder(FileLoader<Station> fileLoaderStations, FileLoader<Platform> fileLoaderPlatforms, FileLoader<Siding> fileLoaderSidings, FileLoader<Route> fileLoaderRoutes, FileLoader<Depot> fileLoaderDepots, FileLoader<Lift> fileLoaderLifts, FileLoader<Rail> fileLoaderRails) {
 	}
 }

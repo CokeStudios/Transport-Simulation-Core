@@ -21,7 +21,7 @@ public final class SidingPathFinder<T extends AreaBase<T, U>, U extends SavedRai
 	private final Object2ObjectOpenHashMap<Position, Rail> runwaysInbound;
 	private final ObjectOpenHashSet<Position> runwaysOutbound;
 
-	public static final int AIRPLANE_SPEED = 900;
+	public static final int AIRPLANE_SPEED = 300;
 	private static final int MAX_AIRPLANE_TURN_ARC = 128;
 
 	public SidingPathFinder(Data data, U startSavedRail, W endSavedRail, int stopIndex) {
@@ -122,7 +122,7 @@ public final class SidingPathFinder<T extends AreaBase<T, U>, U extends SavedRai
 	public static <T extends AreaBase<T, U>, U extends SavedRailBase<U, T>, V extends AreaBase<V, W>, W extends SavedRailBase<W, V>> void findPathTick(ObjectArrayList<PathData> path, ObjectArrayList<SidingPathFinder<T, U, V, W>> sidingPathFinders, long cruisingAltitude, Runnable callbackSuccess, BiConsumer<U, W> callbackFail) {
 		if (!sidingPathFinders.isEmpty()) {
 			Utilities.loopUntilTimeout(() -> {
-				final SidingPathFinder<T, U, V, W> sidingPathFinder = sidingPathFinders.get(0);
+				final SidingPathFinder<T, U, V, W> sidingPathFinder = sidingPathFinders.getFirst();
 				final ObjectArrayList<PathData> tempPath = sidingPathFinder.tick(cruisingAltitude);
 
 				if (tempPath != null) {
@@ -133,10 +133,10 @@ public final class SidingPathFinder<T extends AreaBase<T, U>, U extends SavedRai
 						return 0;
 					} else {
 						if (overlappingPaths(path, tempPath)) {
-							tempPath.remove(0);
+							tempPath.removeFirst();
 						}
 						path.addAll(tempPath);
-						sidingPathFinders.remove(0);
+						sidingPathFinders.removeFirst();
 						if (sidingPathFinders.isEmpty()) {
 							callbackSuccess.run();
 							return 0;
@@ -165,7 +165,7 @@ public final class SidingPathFinder<T extends AreaBase<T, U>, U extends SavedRai
 		if (path.isEmpty() || newPath.isEmpty()) {
 			return false;
 		} else {
-			return Utilities.getElement(path, -1).isSameRail(newPath.get(0));
+			return Utilities.getElement(path, -1).isSameRail(newPath.getFirst());
 		}
 	}
 
@@ -197,7 +197,7 @@ public final class SidingPathFinder<T extends AreaBase<T, U>, U extends SavedRai
 			final Angle rotateAngle = turnRight ? Angle.SEE : Angle.NEE;
 			tempAngle = tempAngle.add(rotateAngle);
 			final Vector posOffset = new Vector(turnArc, 0, 0).rotateY(-oldTempAngle.angleRadians - rotateAngle.angleRadians / 2);
-			tempPos = oldTempPos.offset(Math.round(posOffset.x), Math.round(posOffset.y), Math.round(posOffset.z));
+			tempPos = oldTempPos.offset(Math.round(posOffset.x()), Math.round(posOffset.y()), Math.round(posOffset.z()));
 
 			if (reverse) {
 				tempRailPath.add(0, getAirplanePathData(tempPos, tempAngle.getOpposite(), oldTempPos, oldTempAngle, stopIndex));

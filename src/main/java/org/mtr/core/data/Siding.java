@@ -4,9 +4,11 @@ import it.unimi.dsi.fastutil.booleans.BooleanLongImmutablePair;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
 import it.unimi.dsi.fastutil.longs.Long2LongAVLTreeMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectAVLTreeMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.objects.*;
 import org.mtr.core.Main;
+import org.mtr.core.directions.DirectionsFinder;
 import org.mtr.core.generated.data.SidingSchema;
 import org.mtr.core.oba.*;
 import org.mtr.core.operation.ArrivalResponse;
@@ -21,6 +23,7 @@ import org.mtr.legacy.data.DataFixer;
 import javax.annotation.Nullable;
 import java.util.Collections;
 import java.util.Random;
+import java.util.function.BiConsumer;
 import java.util.function.LongConsumer;
 
 public final class Siding extends SidingSchema implements Utilities {
@@ -188,11 +191,11 @@ public final class Siding extends SidingSchema implements Utilities {
 	}
 
 	public void setDelayedVehicleSpeedIncreasePercentage(int delayedVehicleSpeedIncreasePercentage) {
-		this.delayedVehicleSpeedIncreasePercentage = Utilities.clamp(delayedVehicleSpeedIncreasePercentage, 0, 100);
+		this.delayedVehicleSpeedIncreasePercentage = Math.clamp(delayedVehicleSpeedIncreasePercentage, 0, 100);
 	}
 
 	public void setDelayedVehicleReduceDwellTimePercentage(int delayedVehicleReduceDwellTimePercentage) {
-		this.delayedVehicleReduceDwellTimePercentage = Utilities.clamp(delayedVehicleReduceDwellTimePercentage, 0, 100);
+		this.delayedVehicleReduceDwellTimePercentage = Math.clamp(delayedVehicleReduceDwellTimePercentage, 0, 100);
 	}
 
 	public void setEarlyVehicleIncreaseDwellTime(boolean earlyVehicleIncreaseDwellTime) {
@@ -240,7 +243,7 @@ public final class Siding extends SidingSchema implements Utilities {
 		SidingPathFinder.findPathTick(pathMainRouteToSiding, sidingPathFinderMainRouteToSiding, area == null ? 0 : area.getCruisingAltitude(), () -> {
 			if (area != null) {
 				if (SidingPathFinder.overlappingPaths(area.getPath(), pathMainRouteToSiding)) {
-					pathMainRouteToSiding.remove(0);
+					pathMainRouteToSiding.removeFirst();
 				}
 			}
 			finishGeneratingPath(false);
@@ -378,6 +381,14 @@ public final class Siding extends SidingSchema implements Utilities {
 		}
 	}
 
+	public String getDepotName() {
+		return area == null ? "" : area.getName();
+	}
+
+	public void iterateVehiclesAndRidingEntities(BiConsumer<VehicleExtraData, VehicleRidingEntity> consumer) {
+		vehicles.forEach(vehicle -> vehicle.vehicleExtraData.iterateRidingEntities(vehicleRidingEntity -> consumer.accept(vehicle.vehicleExtraData, vehicleRidingEntity)));
+	}
+
 	public void getArrivals(long currentMillis, Platform platform, long count, ObjectArrayList<ArrivalResponse> arrivalResponseList) {
 		final long[] maxArrivalAndCount = {0, 0};
 		final ObjectArrayList<ArrivalResponse> tempArrivalResponseList = new ObjectArrayList<>();
@@ -399,44 +410,29 @@ public final class Siding extends SidingSchema implements Utilities {
 	}
 
 	/**
-	 * Gets the departure at the last stop of each route. This is used by the online system map for finding directions and showing realtime vehicle positions.
+	 * Gets the departures for the {@link DirectionsFinder}.
+	 *
+	 * @param currentMillis the current time
+	 * @param departures    the map to be written to, using the route ID mapped to the {@link Route} and departures at the last platform
 	 */
-	public void getDepartures(long currentMillis, Object2ObjectAVLTreeMap<String, Long2ObjectAVLTreeMap<LongArrayList>> departures) {
-		if (area != null) {
-			for (int i = 0; i < area.routes.size(); i++) {
-				final Route route = area.routes.get(i);
-				final RoutePlatformData routePlatformData = Utilities.getElement(route.getRoutePlatforms(), -1);
-				if (routePlatformData == null) {
-					continue;
-				}
+	public void getDeparturesForDirections(long currentMillis, Long2ObjectOpenHashMap<ObjectObjectImmutablePair<Route, LongArrayList>> departures) {
+		getDeparturesAtEndOfRoute(
+				currentMillis,
+				(route, scheduledDepartureTime, deviation) -> departures.computeIfAbsent(route.getId(), key -> new ObjectObjectImmutablePair<>(route, new LongArrayList())).right().add(scheduledDepartureTime + deviation)
+		);
+	}
 
-				final long targetRouteId;
-				final int targetTripStopIndex;
-				final Route nextRoute = Utilities.getElement(area.routes, area.getRepeatInfinitely() && i == area.routes.size() - 1 ? 0 : i + 1);
-				final RoutePlatformData nextRoutePlatformData = nextRoute == null ? null : Utilities.getElement(nextRoute.getRoutePlatforms(), 0);
-				if (nextRoutePlatformData != null && routePlatformData.platform.getId() == nextRoutePlatformData.platform.getId()) {
-					targetRouteId = nextRoute.getId();
-					targetTripStopIndex = 0;
-				} else {
-					targetRouteId = route.getId();
-					targetTripStopIndex = route.getRoutePlatforms().size() - 1;
-				}
-
-				if (transportMode.continuousMovement) {
-					if (!this.departures.isEmpty()) {
-						final Long2ObjectAVLTreeMap<LongArrayList> continuousDepartures = new Long2ObjectAVLTreeMap<>();
-						continuousDepartures.put(0, new LongArrayList());
-						departures.put(route.getHexId(), continuousDepartures);
-					}
-				} else {
-					iterateArrivals(currentMillis, routePlatformData.platform.getId(), 0, MILLIS_PER_DAY, (trip, tripStopIndex, stopTime, scheduledArrivalTime, scheduledDepartureTime, predicted, deviation, departureIndex, departureOffset) -> {
-						if (trip.route.getId() == targetRouteId && tripStopIndex == targetTripStopIndex) {
-							departures.computeIfAbsent(route.getHexId(), key -> new Long2ObjectAVLTreeMap<>()).computeIfAbsent(deviation, key -> new LongArrayList()).add(scheduledDepartureTime - currentMillis);
-						}
-					});
-				}
-			}
-		}
+	/**
+	 * Gets the departures for the online system map for showing realtime vehicle positions.
+	 *
+	 * @param currentMillis the current time
+	 * @param departures    the map to be written to, using the {@link Route} hex ID mapped to departures at the last platform for deviation
+	 */
+	public void getDeparturesForMap(long currentMillis, Object2ObjectAVLTreeMap<String, Long2ObjectAVLTreeMap<LongArrayList>> departures) {
+		getDeparturesAtEndOfRoute(
+				currentMillis,
+				(route, scheduledDepartureTime, deviation) -> departures.computeIfAbsent(route.getHexId(), key -> new Long2ObjectAVLTreeMap<>()).computeIfAbsent(deviation, key -> new LongArrayList()).add(scheduledDepartureTime - currentMillis)
+		);
 	}
 
 	public void getOBAArrivalsAndDeparturesElementsWithTripsUsed(SingleElement<StopWithArrivalsAndDepartures> singleElement, StopWithArrivalsAndDepartures stopWithArrivalsAndDepartures, long currentMillis, Platform platform, int millsBefore, int millisAfter) {
@@ -538,8 +534,39 @@ public final class Siding extends SidingSchema implements Utilities {
 		}
 	}
 
-	private String getDepotName() {
-		return area == null ? "" : area.getName();
+	/**
+	 * Gets the departures at the last platform of each route. Note that departures are different from arrivals; the dwell time at the last platform is included as well.
+	 */
+	private void getDeparturesAtEndOfRoute(long currentMillis, DepartureConsumer departureConsumer) {
+		if (area != null) {
+			for (int i = 0; i < area.routes.size(); i++) {
+				final Route route = area.routes.get(i);
+				final RoutePlatformData routePlatformData = Utilities.getElement(route.getRoutePlatforms(), -1);
+				if (routePlatformData == null) {
+					continue;
+				}
+
+				final long targetRouteId;
+				final int targetTripStopIndex;
+				final Route nextRoute = Utilities.getElement(area.routes, area.getRepeatInfinitely() && i == area.routes.size() - 1 ? 0 : i + 1);
+				final RoutePlatformData nextRoutePlatformData = nextRoute == null ? null : Utilities.getElement(nextRoute.getRoutePlatforms(), 0);
+				if (nextRoutePlatformData != null && routePlatformData.platform.getId() == nextRoutePlatformData.platform.getId()) {
+					targetRouteId = nextRoute.getId();
+					targetTripStopIndex = 0;
+				} else {
+					targetRouteId = route.getId();
+					targetTripStopIndex = route.getRoutePlatforms().size() - 1;
+				}
+
+				if (!transportMode.continuousMovement) {
+					iterateArrivals(currentMillis, routePlatformData.platform.getId(), 0, MILLIS_PER_DAY, (trip, tripStopIndex, stopTime, scheduledArrivalTime, scheduledDepartureTime, predicted, deviation, departureIndex, departureOffset) -> {
+						if (trip.route.getId() == targetRouteId && tripStopIndex == targetTripStopIndex) {
+							departureConsumer.accept(route, scheduledDepartureTime, deviation);
+						}
+					});
+				}
+			}
+		}
 	}
 
 	private int matchDeparture() {
@@ -688,18 +715,18 @@ public final class Siding extends SidingSchema implements Utilities {
 			final double totalVehicleLength = getTotalVehicleLength(vehicleCars);
 
 			if (SidingPathFinder.overlappingPaths(pathSidingToMainRoute, pathMainRoute)) {
-				final PathData pathData = pathMainRoute.remove(0);
+				final PathData pathData = pathMainRoute.removeFirst();
 				if (area.getRepeatInfinitely() && !overlappingFromRepeating) {
 					pathMainRoute.add(pathData);
 				}
 			} else {
 				if (area.getRepeatInfinitely() && overlappingFromRepeating) {
-					pathSidingToMainRoute.add(pathMainRoute.remove(0));
+					pathSidingToMainRoute.add(pathMainRoute.removeFirst());
 				}
 			}
 
 			if (SidingPathFinder.overlappingPaths(pathMainRoute, pathMainRouteToSiding)) {
-				pathMainRouteToSiding.remove(0);
+				pathMainRouteToSiding.removeFirst();
 			}
 
 			SidingPathFinder.generatePathDataDistances(pathSidingToMainRoute, 0);
@@ -726,7 +753,7 @@ public final class Siding extends SidingSchema implements Utilities {
 				for (int j = 0; j < route.getRoutePlatforms().size(); j++) {
 					final long platformId = route.getRoutePlatforms().get(j).platform.getId();
 					if (j == 0 && !routePlatformInfoList.isEmpty() && Utilities.getElement(routePlatformInfoList, -1).platformId == platformId) {
-						routePlatformInfoList.remove(routePlatformInfoList.size() - 1);
+						routePlatformInfoList.removeLast();
 					}
 					routePlatformInfoList.add(new RoutePlatformInfo(route, i, platformId, route.getDestination(j)));
 				}
@@ -795,7 +822,7 @@ public final class Siding extends SidingSchema implements Utilities {
 					final long endTime = Math.round(time);
 
 					while (!routePlatformInfoList.isEmpty()) {
-						final RoutePlatformInfo routePlatformInfo = routePlatformInfoList.get(0);
+						final RoutePlatformInfo routePlatformInfo = routePlatformInfoList.getFirst();
 
 						if (routePlatformInfo.platformId != pathData.getSavedRailBaseId()) {
 							break;
@@ -821,7 +848,7 @@ public final class Siding extends SidingSchema implements Utilities {
 
 						writeRouteDuration = newStartTime -> routePlatformInfo.route.durations.add(newStartTime - endTime);
 						tripStopIndex++;
-						routePlatformInfoList.remove(0);
+						routePlatformInfoList.removeFirst();
 					}
 				} else {
 					time += pathData.getDwellTime();
@@ -856,7 +883,7 @@ public final class Siding extends SidingSchema implements Utilities {
 
 	public static double roundAcceleration(double acceleration) {
 		final double tempAcceleration = Utilities.round(acceleration, 8);
-		return tempAcceleration <= 0 ? ACCELERATION_DEFAULT : Utilities.clamp(tempAcceleration, MIN_ACCELERATION, MAX_ACCELERATION);
+		return tempAcceleration <= 0 ? ACCELERATION_DEFAULT : Math.clamp(tempAcceleration, MIN_ACCELERATION, MAX_ACCELERATION);
 	}
 
 	/**
@@ -944,5 +971,10 @@ public final class Siding extends SidingSchema implements Utilities {
 	@FunctionalInterface
 	private interface ArrivalConsumer {
 		void accept(Trip trip, int tripStopIndex, Trip.StopTime stopTime, long scheduledArrivalTime, long scheduledDepartureTime, boolean predicted, long deviation, int departureIndex, long departureOffset);
+	}
+
+	@FunctionalInterface
+	private interface DepartureConsumer {
+		void accept(Route route, long scheduledDepartureTime, long deviation);
 	}
 }

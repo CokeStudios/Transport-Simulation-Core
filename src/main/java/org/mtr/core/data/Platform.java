@@ -41,6 +41,10 @@ public final class Platform extends PlatformSchema {
 		anglesFromDepot.put(depotId, angle);
 	}
 
+	public String getStationName() {
+		return area == null ? "" : area.getName();
+	}
+
 	public Stop getOBAStopElement(IntAVLTreeSet routesUsed) {
 		Angle angle = null;
 		for (final Angle checkAngle : anglesFromDepot.values()) {
@@ -58,8 +62,8 @@ public final class Platform extends PlatformSchema {
 				getHexId(),
 				getHexId(),
 				String.format("%s%s%s%s", stationName, !stationName.isEmpty() && !name.isEmpty() ? " - " : "", name.isEmpty() ? "" : "Platform ", name),
-				latLon.lat,
-				latLon.lon,
+				latLon.lat(),
+				latLon.lon(),
 				EnumHelper.valueOf(StopDirection.NONE, angle == null ? "" : angle.getClosest45().toString())
 		);
 
