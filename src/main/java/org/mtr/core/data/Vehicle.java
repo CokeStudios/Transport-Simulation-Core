@@ -411,7 +411,9 @@ public class Vehicle extends VehicleSchema implements Utilities {
 				// If blocked ahead, slow down (using normal deceleration for automatic and emergency brake for manual)
 				speedTarget = -1;
 				powerLevel = Math.min(vehicleExtraData.getPowerLevel(), isCurrentlyManual() && hardStoppingDistance > 2 ? -MAX_POWER_LEVEL - 1 : -POWER_LEVEL_RATIO);
+				Main.LOGGER.warn("0-BEFORE atoOverride: {}, previousAtoOverride: {}", atoOverride, previousAtoOverride);
 				previousAtoOverride = atoOverride;
+				Main.LOGGER.warn("0-AFTER atoOverride: {}, previousAtoOverride: {}", atoOverride, previousAtoOverride);
 				atoOverride = true;
 			} else {
 				if (isCurrentlyManual()) {
@@ -463,9 +465,11 @@ public class Vehicle extends VehicleSchema implements Utilities {
 			vehicleExtraData.setSpeedTarget(0);
 			updateDeviation();
 			if (!isClientside) {
+				Main.LOGGER.warn("1-BEFORE atoOverride: {}, previousAtoOverride: {}", atoOverride, previousAtoOverride);
 				if (!previousAtoOverride) {
 					atoOverride = false;
 				}
+				Main.LOGGER.warn("1-AFTER atoOverride: {}, previousAtoOverride: {}", atoOverride, previousAtoOverride);
 				vehicleExtraData.setPowerLevel(Math.min(vehicleExtraData.getPowerLevel(), -1));
 			}
 		} else if (vehicleExtraData.getRepeatIndex2() > 0 && railProgress >= vehicleExtraData.getTotalDistance()) {
