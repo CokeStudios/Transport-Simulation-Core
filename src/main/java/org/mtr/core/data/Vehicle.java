@@ -242,6 +242,7 @@ public class Vehicle extends VehicleSchema implements Utilities {
 						} else {
 							vehicleExtraData.toggleDoors();
 						}
+						previousAtoOverride = false;
 					}
 
 					if (vehicleRidingEntity.manualToggleAto()) {
