@@ -1,38 +1,60 @@
 name: Build
-on: [ pull_request, push, workflow_dispatch ]
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
 
 jobs:
   build:
+    name: Build Java
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@main
-      - name: Validate gradle wrapper
-        uses: gradle/wrapper-validation-action@main
-      - name: Setup JDK 17
+      - name: Use lowercase project name for publish
+        run: echo 'rootProject.name = "transport-simulation-core"' > settings.gradle.kts
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@main
+      - name: Setup JDK 21
         uses: actions/setup-java@main
         with:
-          java-version: 17
+          java-version: 21
           distribution: 'zulu'
-      - name: Make gradle wrapper executable
+          cache: gradle
+      - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
-      - name: Generate TypeScript schema classes
-        run: ./gradlew generateTypeScriptSchemaClasses
+      - name: Update Gradle
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+        run: ./gradlew wrapper --gradle-version latest --no-daemon
+      - name: Generate version
+        run: ./gradlew generateVersion --no-daemon
+      - name: Generate schema classes
+        run: ./gradlew generateSchemaClasses --no-daemon
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@main
         with:
-          node-version: 20
-      - name: Setup Node packages
-        run: npm ci --prefix buildSrc/src/main/resources/website
+          node-version: 24
+      - name: Install Node packages
+        run: npm ci --prefix website
+      - name: Update packages
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+        run: npm run update-all --prefix website
       - name: Build Angular
-        run: npm run build --prefix buildSrc/src/main/resources/website
-      - name: Generate Java schema classes
-        run: ./gradlew generateJavaSchemaClasses
-      - name: Build
-        run: ./gradlew build buildSrc:build -x test
-      # Tests don't work for some reason
-      # - name: Run JUnits
-      #   run: ./gradlew test
+        run: npm run build --prefix website
+      - name: Setup webserver
+        run: ./gradlew setupWebserver --no-daemon
+      - name: Build JAR
+        run: ./gradlew build buildSrc:build -x test --no-daemon
+      - name: Publish to GitHub Packages
+        if: github.event_name == 'push'
+        run: ./gradlew publish --no-daemon
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
       - name: Capture main build artifact
         uses: actions/upload-artifact@main
         with:
@@ -43,3 +65,15 @@ jobs:
         with:
           name: JSON Schema Generator
           path: buildSrc/build/libs/
+      - name: Commit changes
+        uses: iarekylew00t/verified-bot-commit@main
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+        with:
+          message: Update Gradle and Angular
+          files: |
+            gradle/**
+            gradlew
+            gradlew.bat
+            website/package.json
+            website/package-lock.json
+          max-retries: 5

@@ -10,18 +10,17 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Assertions;
+import org.msgpack.core.MessageBufferPacker;
+import org.msgpack.core.MessagePack;
+import org.msgpack.core.MessageUnpacker;
 import org.mtr.core.Main;
 import org.mtr.core.serializer.*;
 import org.mtr.core.simulation.Simulator;
 import org.mtr.core.tool.Angle;
 import org.mtr.core.tool.Utilities;
-import org.mtr.libraries.org.msgpack.core.MessageBufferPacker;
-import org.mtr.libraries.org.msgpack.core.MessagePack;
-import org.mtr.libraries.org.msgpack.core.MessageUnpacker;
 
-import javax.annotation.Nullable;
-import javax.annotation.ParametersAreNonnullByDefault;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Random;
@@ -29,7 +28,6 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-@ParametersAreNonnullByDefault
 public interface TestUtilities {
 
 	Path TEST_DIRECTORY = Paths.get("build/test-data");
@@ -64,7 +62,7 @@ public interface TestUtilities {
 			try {
 				((HttpPost) httpUriRequest).setEntity(new StringEntity(bodyObject.toString()));
 			} catch (Exception e) {
-				Main.LOGGER.error("", e);
+				Main.LOGGER.error("Failed to attach JSON body to POST request", e);
 			}
 		}
 
@@ -75,7 +73,7 @@ public interface TestUtilities {
 				responseObject = Utilities.parseJson(EntityUtils.toString(response.getEntity()));
 			}
 		} catch (Exception e) {
-			Main.LOGGER.error("", e);
+			Main.LOGGER.error("Failed to execute HTTP request to {}", uri, e);
 		}
 
 		return responseObject;
@@ -94,7 +92,7 @@ public interface TestUtilities {
 				compareObjects(data, newInstance.apply(new MessagePackReader(messageUnpacker)));
 			}
 		} catch (Exception e) {
-			Main.LOGGER.error("", e);
+			Main.LOGGER.error("Failed round-trip serialization of {}", data, e);
 		}
 	}
 
@@ -133,12 +131,20 @@ public interface TestUtilities {
 		return new Depot(randomTransportMode(), getDefaultSimulator());
 	}
 
+	static Home randomHome() {
+		return new Home(getDefaultSimulator());
+	}
+
 	static InterchangeRouteNamesForColor randomInterchangeRouteNamesForColor() {
 		return new InterchangeRouteNamesForColor(RANDOM.nextLong());
 	}
 
 	static InterchangeColorsForStationName randomInterchangeColorsForStationName() {
 		return new InterchangeColorsForStationName(randomString());
+	}
+
+	static Landmark randomLandmark() {
+		return new Landmark(getDefaultSimulator());
 	}
 
 	static Lift randomLift() {
@@ -151,6 +157,14 @@ public interface TestUtilities {
 
 	static LiftInstruction randomLiftInstruction() {
 		return new LiftInstruction(RANDOM.nextInt(), randomEnum(LiftDirection.values()));
+	}
+
+	static Passenger randomPassenger() {
+		return new Passenger(getDefaultSimulator());
+	}
+
+	static PassengerDirection randomPassengerDirection() {
+		return new PassengerDirection(RANDOM.nextLong(), RANDOM.nextLong(), RANDOM.nextLong(), RANDOM.nextLong(), RANDOM.nextLong());
 	}
 
 	static PathData randomPathData() {
@@ -166,7 +180,7 @@ public interface TestUtilities {
 	}
 
 	static Rail randomRail() {
-		return Rail.newRail(randomPosition(), randomEnum(Angle.values()), randomPosition(), randomEnum(Angle.values()), randomEnum(Rail.Shape.values()), RANDOM.nextDouble(), randomList(TestUtilities::randomString), RANDOM.nextLong(), RANDOM.nextLong(), RANDOM.nextBoolean(), RANDOM.nextBoolean(), RANDOM.nextBoolean(), RANDOM.nextBoolean(), RANDOM.nextBoolean(), randomTransportMode());
+		return Rail.newRail(randomPosition(), randomEnum(Angle.values()), randomPosition(), randomEnum(Angle.values()), randomEnum(Rail.Shape.values()), RANDOM.nextDouble(), RANDOM.nextLong(), RANDOM.nextDouble(), RANDOM.nextDouble(), RANDOM.nextDouble(), RANDOM.nextDouble(), RANDOM.nextDouble(), RANDOM.nextDouble(), RANDOM.nextDouble(), RANDOM.nextDouble(), RANDOM.nextDouble(), RANDOM.nextDouble(), RANDOM.nextDouble(), randomList(TestUtilities::randomString), RANDOM.nextLong(), RANDOM.nextLong(), RANDOM.nextBoolean(), RANDOM.nextBoolean(), RANDOM.nextBoolean(), RANDOM.nextBoolean(), RANDOM.nextBoolean(), randomTransportMode());
 	}
 
 	static Route randomRoute() {
@@ -229,8 +243,16 @@ public interface TestUtilities {
 		return new Depot(readerBase, getDefaultSimulator());
 	}
 
+	static Home newHome(ReaderBase readerBase) {
+		return new Home(readerBase, getDefaultSimulator());
+	}
+
 	static InterchangeRouteNamesForColor newInterchangeRouteNamesForColor(ReaderBase readerBase) {
 		return new InterchangeRouteNamesForColor(readerBase);
+	}
+
+	static Landmark newLandmark(ReaderBase readerBase) {
+		return new Landmark(readerBase, getDefaultSimulator());
 	}
 
 	static Lift newLift(ReaderBase readerBase) {
@@ -243,6 +265,14 @@ public interface TestUtilities {
 
 	static LiftInstruction newLiftInstruction(ReaderBase readerBase) {
 		return new LiftInstruction(readerBase);
+	}
+
+	static Passenger newPassenger(ReaderBase readerBase) {
+		return new Passenger(readerBase, getDefaultSimulator());
+	}
+
+	static PassengerDirection newPassengerDirection(ReaderBase readerBase) {
+		return new PassengerDirection(readerBase);
 	}
 
 	static PathData newPathData(ReaderBase readerBase) {

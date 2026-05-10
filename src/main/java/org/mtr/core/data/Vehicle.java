@@ -4,21 +4,32 @@ import it.unimi.dsi.fastutil.booleans.BooleanBooleanImmutablePair;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
 import it.unimi.dsi.fastutil.doubles.DoubleDoubleImmutablePair;
 import it.unimi.dsi.fastutil.ints.IntAVLTreeSet;
-import it.unimi.dsi.fastutil.longs.Long2LongAVLTreeMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongObjectImmutablePair;
 import it.unimi.dsi.fastutil.objects.Object2ObjectAVLTreeMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectObjectImmutablePair;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
-import org.mtr.core.Main;
+import lombok.extern.log4j.Log4j2;
+import org.jspecify.annotations.Nullable;
 import org.mtr.core.generated.data.VehicleSchema;
+import org.mtr.core.path.SidingPathFinder;
 import org.mtr.core.serializer.ReaderBase;
 import org.mtr.core.simulation.Simulator;
 import org.mtr.core.tool.Utilities;
 import org.mtr.core.tool.Vector;
 
-import javax.annotation.Nullable;
 import java.util.UUID;
 
+/**
+ * A single train / boat / cable car / airplane consist running along a {@link Siding}.
+ *
+ * <p>Lives both server-side (where it owns its motion physics, signal blocks and door state)
+ * and client-side (where it is replayed from sync snapshots) — see {@link #isClientside}. The
+ * physics step is split into {@link #simulateMoving}, {@link #simulateStopped} and
+ * {@link #simulateInDepot} depending on the vehicle's state at the start of the tick.</p>
+ */
+@Log4j2
 public class Vehicle extends VehicleSchema implements Utilities {
 
 	/**
@@ -62,9 +73,13 @@ public class Vehicle extends VehicleSchema implements Utilities {
 	}
 
 	/**
-	 * @deprecated for {@link org.mtr.core.operation.VehicleUpdate} use only
+	 * Internal-only: the single-argument constructor used by
+	 * {@link org.mtr.core.operation.VehicleUpdate} when reconstructing a vehicle from a network
+	 * update. Wraps the read in a fresh {@link ClientData} so the resulting vehicle has somewhere
+	 * to look up cached references. <strong>Do not call from user code.</strong>
 	 */
 	@Deprecated
+	@SuppressWarnings("DeprecatedIsStillUsed")
 	public Vehicle(ReaderBase readerBase) {
 		this(new VehicleExtraData(readerBase), null, readerBase, new ClientData());
 	}
@@ -94,7 +109,7 @@ public class Vehicle extends VehicleSchema implements Utilities {
 		writeVehiclePositions(Utilities.getIndexFromConditionalList(vehicleExtraData.immutablePath, railProgress), vehiclePositions);
 	}
 
-	public void simulate(long millisElapsed, @Nullable ObjectArrayList<Object2ObjectAVLTreeMap<Position, Object2ObjectAVLTreeMap<Position, VehiclePosition>>> vehiclePositions, @Nullable Long2LongAVLTreeMap vehicleTimesAlongRoute) {
+	public void simulate(long millisElapsed, @Nullable ObjectArrayList<Object2ObjectAVLTreeMap<Position, Object2ObjectAVLTreeMap<Position, VehiclePosition>>> vehiclePositions, @Nullable Long2ObjectOpenHashMap<LongObjectImmutablePair<Vehicle>> vehicleTimesAlongRoute) {
 		final int currentIndex;
 		final BooleanBooleanImmutablePair containsDriverAndDoorOverride = vehicleExtraData.containsDriverAndDoorOverride();
 		manualCooldown = vehicleExtraData.getIsManualAllowed() && containsDriverAndDoorOverride.leftBoolean() ? vehicleExtraData.getManualToAutomaticTime() : Math.max(0, manualCooldown - millisElapsed);
@@ -127,21 +142,21 @@ public class Vehicle extends VehicleSchema implements Utilities {
 
 		stoppingCooldown = Math.max(0, stoppingCooldown - millisElapsed);
 
-		if (vehiclePositions != null) {
+		if (vehiclePositions != null && vehiclePositions.size() > 1) {
 			writeVehiclePositions(currentIndex, vehiclePositions.get(1));
 		}
 
 		if (vehicleTimesAlongRoute != null) {
 			final long timeAlongRoute = getTimeAlongRoute(railProgress);
 			if (timeAlongRoute > 0) {
-				vehicleTimesAlongRoute.put(departureIndex, timeAlongRoute);
+				vehicleTimesAlongRoute.put(departureIndex, new LongObjectImmutablePair<>(timeAlongRoute, this));
 			}
 		}
 
 		if (!isClientside) {
 			// Remove entities that have dismounted
-			if (data instanceof Simulator) {
-				vehicleExtraData.removeRidingEntitiesIf(vehicleRidingEntity -> !((Simulator) data).isRiding(vehicleRidingEntity.uuid, id));
+			if (data instanceof final Simulator simulator) {
+				vehicleExtraData.removeRidingEntitiesIf(vehicleRidingEntity -> !simulator.isRiding(vehicleRidingEntity.uuid, id));
 			}
 
 			// Update the manual state for the client
@@ -151,7 +166,7 @@ public class Vehicle extends VehicleSchema implements Utilities {
 
 	public void startUp(long newDepartureIndex, long newSidingDepartureTime) {
 		if (isClientside) {
-			Main.LOGGER.warn("Vehicle#startUp should only be called on the server side!");
+			log.warn("Vehicle#startUp should only be called on the server side!");
 		}
 
 		vehicleExtraData.closeDoors();
@@ -187,15 +202,15 @@ public class Vehicle extends VehicleSchema implements Utilities {
 		return departureIndex;
 	}
 
-	public ObjectArrayList<ObjectObjectImmutablePair<VehicleCar, ObjectArrayList<ObjectObjectImmutablePair<Vector, Vector>>>> getVehicleCarsAndPositions() {
-		final ObjectArrayList<ObjectObjectImmutablePair<VehicleCar, ObjectArrayList<ObjectObjectImmutablePair<Vector, Vector>>>> vehicleCarsAndPositions = new ObjectArrayList<>();
+	public ObjectArrayList<ObjectObjectImmutablePair<VehicleCar, ObjectArrayList<BogiePosition>>> getVehicleCarsAndPositions() {
+		final ObjectArrayList<ObjectObjectImmutablePair<VehicleCar, ObjectArrayList<BogiePosition>>> vehicleCarsAndPositions = new ObjectArrayList<>();
 		double checkRailProgress = railProgress - (reversed ? vehicleExtraData.getTotalVehicleLength() : 0);
 
 		for (int i = 0; i < vehicleExtraData.immutableVehicleCars.size(); i++) {
 			final VehicleCar vehicleCar = vehicleExtraData.immutableVehicleCars.get(i);
 			checkRailProgress += (reversed ? 1 : -1) * vehicleCar.getCouplingPadding1(i == 0);
 			final double halfLength = vehicleCar.getLength() / 2;
-			final ObjectArrayList<ObjectObjectImmutablePair<Vector, Vector>> bogiePositionsList = new ObjectArrayList<>();
+			final ObjectArrayList<BogiePosition> bogiePositionsList = new ObjectArrayList<>();
 			final DoubleArrayList overrideY = new DoubleArrayList(); // For airplanes, don't nosedive when descending
 			bogiePositionsList.add(getBogiePositions(checkRailProgress + (reversed ? 1 : -1) * (halfLength + vehicleCar.getBogie1Position()), overrideY));
 
@@ -210,12 +225,12 @@ public class Vehicle extends VehicleSchema implements Utilities {
 		return vehicleCarsAndPositions;
 	}
 
-	public Vector getHeadPosition() {
-		return getPosition(railProgress, new DoubleArrayList());
+	public PositionAndTiltAngle getHeadPositionAndTiltAngle() {
+		return getPositionAndTiltAngle(railProgress, new DoubleArrayList());
 	}
 
 	void updateRidingEntities(ObjectArrayList<VehicleRidingEntity> vehicleRidingEntities) {
-		if (!isClientside && data instanceof Simulator) {
+		if (!isClientside && data instanceof final Simulator simulator) {
 			final ObjectOpenHashSet<UUID> uuidToRemove = new ObjectOpenHashSet<>();
 			final ObjectOpenHashSet<VehicleRidingEntity> vehicleRidingEntitiesToAdd = new ObjectOpenHashSet<>();
 
@@ -224,9 +239,9 @@ public class Vehicle extends VehicleSchema implements Utilities {
 
 				if (vehicleRidingEntity.isOnVehicle()) {
 					vehicleRidingEntitiesToAdd.add(vehicleRidingEntity);
-					((Simulator) data).ride(vehicleRidingEntity.uuid, id);
+					simulator.ride(vehicleRidingEntity.uuid, id);
 				} else {
-					((Simulator) data).stopRiding(vehicleRidingEntity.uuid);
+					simulator.stopRiding(vehicleRidingEntity.uuid);
 				}
 
 				if (vehicleExtraData.getIsManualAllowed() && vehicleRidingEntity.isDriver()) {
@@ -336,15 +351,16 @@ public class Vehicle extends VehicleSchema implements Utilities {
 				}
 
 				final long deviationAdjustment;
-				if (siding != null && elapsedDwellTime >= DOOR_DELAY + DOOR_MOVE_TIME && elapsedDwellTime < doorCloseTime) {
+				if (siding != null && elapsedDwellTime >= DOOR_DELAY + DOOR_MOVE_TIME && elapsedDwellTime < doorCloseTime && deviation != 0) {
 					if (deviation > 0) {
 						// If delayed
 						deviationAdjustment = Math.min(deviation, (doorCloseTime - elapsedDwellTime) * siding.getDelayedVehicleReduceDwellTimePercentage() / 100);
+						deviation = 0;
 					} else {
 						// If early
 						deviationAdjustment = siding.getEarlyVehicleIncreaseDwellTime() ? Math.max(deviation, -millisElapsed) : 0;
+						deviation -= deviationAdjustment;
 					}
-					deviation -= deviationAdjustment;
 				} else {
 					deviationAdjustment = 0;
 				}
@@ -413,7 +429,7 @@ public class Vehicle extends VehicleSchema implements Utilities {
 						powerLevel = -POWER_LEVEL_RATIO;
 					} else {
 						powerLevel = vehicleExtraData.getPowerLevel();
-						speedTarget = powerLevel > 0 ? vehicleExtraData.getMaxManualSpeed() : powerLevel < 0 ? 0 : speed;
+						speedTarget = powerLevel > 0 ? vehicleExtraData.getMaxManualSpeed() : (powerLevel < 0 ? 0 : speed);
 					}
 				} else {
 					final double upcomingSlowerSpeed = Siding.getUpcomingSlowerSpeed(vehicleExtraData.immutablePath, currentIndex, railProgress, speed, vehicleExtraData.getDeceleration());
@@ -491,13 +507,14 @@ public class Vehicle extends VehicleSchema implements Utilities {
 
 	private boolean isCurrentlyManual() {
 		if (isClientside) {
-			Main.LOGGER.warn("Vehicle#isCurrentlyManual should only be called on the server side!");
+			log.warn("Vehicle#isCurrentlyManual should only be called on the server side!");
 		}
 		return !atoOverride && manualCooldown > 0;
 	}
 
 	private void setNextStoppingIndex() {
-		nextStoppingIndexAto = nextStoppingIndexManual = vehicleExtraData.immutablePath.size() - 1;
+		nextStoppingIndexAto = vehicleExtraData.immutablePath.size() - 1;
+		nextStoppingIndexManual = nextStoppingIndexAto;
 		vehicleExtraData.setStoppingPoint(vehicleExtraData.getTotalDistance());
 		for (int i = Utilities.getIndexFromConditionalList(vehicleExtraData.immutablePath, railProgress); i < vehicleExtraData.immutablePath.size(); i++) {
 			final PathData pathData = vehicleExtraData.immutablePath.get(i);
@@ -511,7 +528,8 @@ public class Vehicle extends VehicleSchema implements Utilities {
 						break;
 					}
 				} else {
-					nextStoppingIndexAto = nextStoppingIndexManual = i;
+					nextStoppingIndexAto = i;
+					nextStoppingIndexManual = i;
 					vehicleExtraData.setStoppingPoint(pathData.getEndDistance());
 					break;
 				}
@@ -520,8 +538,7 @@ public class Vehicle extends VehicleSchema implements Utilities {
 	}
 
 	/**
-	 * Indicate which portions of each path segment are occupied by this vehicle.
-	 * Also check if the vehicle needs to send a socket update:
+	 * Indicate which portions of each path segment are occupied by this vehicle. Also check if the vehicle needs to send a socket update:
 	 * <ul>
 	 * <li>Entered a client's view radius</li>
 	 * <li>Left a client's view radius</li>
@@ -562,11 +579,11 @@ public class Vehicle extends VehicleSchema implements Utilities {
 		}
 
 		if (siding != null) {
-			if (siding.area != null && data instanceof Simulator) {
+			if (siding.area != null && data instanceof final Simulator simulator) {
 				final boolean needsUpdate = vehicleExtraData.checkForUpdate();
 				// TODO for continuous movement, maybe only send the path once rather than sending the entire path for each vehicle
 				final int pathUpdateIndex = transportMode.continuousMovement ? 0 : Math.max(0, index + 1);
-				((Simulator) data).clients.forEach(client -> {
+				simulator.clients.forEach(client -> {
 					final Position position = client.getPosition();
 					final double updateRadius = client.getUpdateRadius();
 					if ((minMaxPositions[0] == null || minMaxPositions[1] == null) ? siding.area.inArea(position, updateRadius) : Utilities.isBetween(position, minMaxPositions[0], minMaxPositions[1], updateRadius) || !closeToDepot() && vehicleExtraData.hasRidingEntity(client.uuid)) {
@@ -658,41 +675,47 @@ public class Vehicle extends VehicleSchema implements Utilities {
 	}
 
 	@Nullable
-	private Vector getPosition(double value, DoubleArrayList overrideY) {
+	private PositionAndTiltAngle getPositionAndTiltAngle(double value, DoubleArrayList overrideY) {
 		final PathData pathData = Utilities.getElement(vehicleExtraData.immutablePath, Utilities.getIndexFromConditionalList(vehicleExtraData.immutablePath, value));
 		if (pathData == null) {
 			return null;
 		} else {
-			final Vector vector = pathData.getPosition(value - pathData.getStartDistance());
-			if (transportMode == TransportMode.AIRPLANE && pathData.getSpeedLimitKilometersPerHour() == 900 && pathData.isDescending()) {
+			final PositionAndTiltAngle positionAndTiltAngle = pathData.getPositionAndTiltAngle(data, value - pathData.getStartDistance());
+			if (transportMode == TransportMode.AIRPLANE && pathData.getSpeedLimitKilometersPerHour() == SidingPathFinder.AIRPLANE_SPEED && pathData.isDescending()) {
 				if (overrideY.isEmpty()) {
-					overrideY.add(vector.y);
-					return vector;
+					overrideY.add(positionAndTiltAngle.position.y());
+					return positionAndTiltAngle;
 				} else {
-					return new Vector(vector.x, overrideY.getDouble(0), vector.z);
+					return new PositionAndTiltAngle(new Vector(positionAndTiltAngle.position.x(), overrideY.getDouble(0), positionAndTiltAngle.position.z()), positionAndTiltAngle.tiltAngle);
 				}
 			} else {
-				return vector;
+				return positionAndTiltAngle;
 			}
 		}
 	}
 
-	private ObjectObjectImmutablePair<Vector, Vector> getBogiePositions(double value, DoubleArrayList overrideY) {
+	private BogiePosition getBogiePositions(double value, DoubleArrayList overrideY) {
 		final double lowerBound = railProgress - vehicleExtraData.getTotalVehicleLength();
-		final double clampedValue = Utilities.clamp(value, lowerBound, railProgress);
+		final double clampedValue = Utilities.clampSafe(value, lowerBound, railProgress);
 		final double value1;
 		final double value2;
-		final double clamp = Utilities.clamp(Math.min(Math.abs(clampedValue - lowerBound), Math.abs(clampedValue - railProgress)), 0.1, 1);
-		value1 = Utilities.clamp(clampedValue + (reversed ? -clamp : clamp), lowerBound, railProgress);
-		value2 = Utilities.clamp(clampedValue - (reversed ? -clamp : clamp), lowerBound, railProgress);
-		final Vector position1 = getPosition(value1, overrideY);
-		final Vector position2 = getPosition(value2, overrideY);
-		return position1 == null || position2 == null ? new ObjectObjectImmutablePair<>(new Vector(value1, 0, 0), new Vector(value2, 0, 0)) : new ObjectObjectImmutablePair<>(position1, position2);
+		final double clamp = Utilities.clampSafe(Math.min(Math.abs(clampedValue - lowerBound), Math.abs(clampedValue - railProgress)), 0.1, 1);
+		value1 = Utilities.clampSafe(clampedValue + (reversed ? -clamp : clamp), lowerBound, railProgress - 0.001);
+		value2 = Utilities.clampSafe(clampedValue - (reversed ? -clamp : clamp), lowerBound, railProgress - 0.001);
+		final PositionAndTiltAngle positionAndTiltAngle1 = getPositionAndTiltAngle(value1, overrideY);
+		final PositionAndTiltAngle positionAndTiltAngle2 = getPositionAndTiltAngle(value2, overrideY);
+		return positionAndTiltAngle1 == null || positionAndTiltAngle2 == null ? new BogiePosition(new PositionAndTiltAngle(new Vector(value1, 0, 0), 0), new PositionAndTiltAngle(new Vector(value2, 0, 0), 0)) : new BogiePosition(positionAndTiltAngle1, positionAndTiltAngle2);
 	}
 
 	private static DoubleDoubleImmutablePair getBlockedBounds(PathData pathData, double lowerRailProgress, double upperRailProgress) {
-		final double distanceFromStart = Utilities.clamp(lowerRailProgress, pathData.getStartDistance(), pathData.getEndDistance()) - pathData.getStartDistance();
-		final double distanceToEnd = pathData.getEndDistance() - Utilities.clamp(upperRailProgress, pathData.getStartDistance(), pathData.getEndDistance());
+		final double distanceFromStart = Utilities.clampSafe(lowerRailProgress, pathData.getStartDistance(), pathData.getEndDistance()) - pathData.getStartDistance();
+		final double distanceToEnd = pathData.getEndDistance() - Utilities.clampSafe(upperRailProgress, pathData.getStartDistance(), pathData.getEndDistance());
 		return new DoubleDoubleImmutablePair(pathData.reversePositions ? distanceToEnd : distanceFromStart, pathData.getEndDistance() - pathData.getStartDistance() - (pathData.reversePositions ? distanceFromStart : distanceToEnd));
+	}
+
+	public record BogiePosition(PositionAndTiltAngle positionAndTiltAngle1, PositionAndTiltAngle positionAndTiltAngle2) {
+	}
+
+	public record PositionAndTiltAngle(Vector position, double tiltAngle) {
 	}
 }

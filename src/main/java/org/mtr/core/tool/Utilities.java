@@ -5,12 +5,12 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import it.unimi.dsi.fastutil.objects.ObjectLongImmutablePair;
+import org.jspecify.annotations.Nullable;
 import org.mtr.core.Main;
 import org.mtr.core.data.Position;
 import org.mtr.core.serializer.JsonWriter;
 import org.mtr.core.serializer.SerializedDataBase;
 
-import javax.annotation.Nullable;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -19,11 +19,26 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
+/**
+ * Grab-bag of stateless helpers reused across the simulator: clamping, interpolation, range
+ * tests, hex-string formatting, executor-shutdown plumbing and so on.
+ *
+ * <p>Declared as an {@code interface} so domain classes can {@code implements Utilities} and
+ * pick up the time-unit constants ({@link #MILLIS_PER_SECOND}, {@link #MILLIS_PER_DAY}, …) as
+ * inherited fields without polluting their own API. All methods are {@code static} — there is
+ * no state and no instance to construct.</p>
+ */
 public interface Utilities {
 
+	/** Hours in a day; lifted from a literal because it shows up in tick / departure maths. */
 	int HOURS_PER_DAY = 24;
+	/** Milliseconds in one second. */
 	int MILLIS_PER_SECOND = 1000;
-	int MILLIS_PER_HOUR = 60 * 60 * MILLIS_PER_SECOND;
+	/** Milliseconds in one minute. */
+	int MILLIS_PER_MINUTE = 60 * MILLIS_PER_SECOND;
+	/** Milliseconds in one hour. */
+	int MILLIS_PER_HOUR = 60 * MILLIS_PER_MINUTE;
+	/** Milliseconds in one (real) day. */
 	int MILLIS_PER_DAY = HOURS_PER_DAY * MILLIS_PER_HOUR;
 
 	static boolean isBetween(double value, double value1, double value2) {
@@ -39,33 +54,17 @@ public interface Utilities {
 	}
 
 	static boolean isBetween(Position position, Vector position1, Vector position2, double padding) {
-		return isBetween(position, position1.x, position1.y, position1.z, position2.x, position2.y, position2.z, padding);
+		return isBetween(position, position1.x(), position1.y(), position1.z(), position2.x(), position2.y(), position2.z(), padding);
 	}
 
 	static boolean isBetween(Position position, double x1, double y1, double z1, double x2, double y2, double z2, double padding) {
 		return Utilities.isBetween(position.getX(), x1, x2, padding) &&
-				Utilities.isBetween(position.getY(), y1, y2, padding) &&
-				Utilities.isBetween(position.getZ(), z1, z2, padding);
+			Utilities.isBetween(position.getY(), y1, y2, padding) &&
+			Utilities.isBetween(position.getZ(), z1, z2, padding);
 	}
 
 	static boolean isIntersecting(double value1, double value2, double value3, double value4) {
 		return isBetween(value3, value1, value2) || isBetween(value4, value1, value2) || isBetween(value1, value3, value4) || isBetween(value2, value3, value4);
-	}
-
-	static int clamp(int value, int min, int max) {
-		return Math.min(max, Math.max(min, value));
-	}
-
-	static long clamp(long value, long min, long max) {
-		return Math.min(max, Math.max(min, value));
-	}
-
-	static float clamp(float value, float min, float max) {
-		return Math.min(max, Math.max(min, value));
-	}
-
-	static double clamp(double value, double min, double max) {
-		return Math.min(max, Math.max(min, value));
 	}
 
 	static double round(double value, int decimalPlaces) {
@@ -78,6 +77,11 @@ public interface Utilities {
 
 	static double getAverage(double a, double b) {
 		return (a + b) / 2;
+	}
+
+	static double getValueFromPercentage(double percentage, double value1, double value2) {
+		final double newPercentage = clampSafe(percentage, 0, 1);
+		return value1 * (1 - newPercentage) + value2 * newPercentage;
 	}
 
 	static String numberToPaddedHexString(long value) {
@@ -103,7 +107,11 @@ public interface Utilities {
 	static JsonObject parseJson(String data) {
 		try {
 			return JsonParser.parseString(data).getAsJsonObject();
-		} catch (Exception ignored) {
+		} catch (Exception e) {
+			// Empty object is the documented "couldn't parse" return. Logged at debug because the
+			// caller frequently feeds untrusted input (servlet bodies, on-disk legacy files) and a
+			// hard failure would be wrong; logged at all so silent corruption is debuggable. (§3.14)
+			Main.LOGGER.debug("parseJson fell back to empty object for input of length {}", data.length(), e);
 			return new JsonObject();
 		}
 	}
@@ -120,10 +128,12 @@ public interface Utilities {
 		return speedKilometersPerHour / 3600;
 	}
 
+	@Nullable
 	static <T, U extends List<T>> T getElement(U collection, int index) {
 		return getElement(collection, index, null);
 	}
 
+	@Nullable
 	static <T, U extends List<T>> T getElement(@Nullable U collection, int index, @Nullable T defaultValue) {
 		final T result;
 		if (collection == null || index >= collection.size() || index < -collection.size()) {
@@ -132,6 +142,21 @@ public interface Utilities {
 			result = collection.get((index < 0 ? collection.size() : 0) + index);
 		}
 		return result == null ? defaultValue : result;
+	}
+
+	static <T, U extends List<T>> void setElement(@Nullable U collection, int index, T value) {
+		if (collection != null && index < collection.size() && index >= -collection.size()) {
+			collection.set((index < 0 ? collection.size() : 0) + index, value);
+		}
+	}
+
+	@Nullable
+	static <T, U extends List<T>> T removeElement(@Nullable U collection, int index) {
+		if (collection == null || index >= collection.size() || index < -collection.size()) {
+			return null;
+		} else {
+			return collection.remove((index < 0 ? collection.size() : 0) + index);
+		}
 	}
 
 	static <T extends ConditionalList> int getIndexFromConditionalList(List<T> list, double value) {
@@ -154,7 +179,7 @@ public interface Utilities {
 					return lowIndex < 0 ? -1 : lowIndex;
 				}
 
-				index = Utilities.clamp((lowIndex + highIndex) / 2, 0, listSize - 1);
+				index = clampSafe((lowIndex + highIndex) / 2, 0, listSize - 1);
 			}
 		}
 	}
@@ -165,23 +190,52 @@ public interface Utilities {
 		return jsonObject;
 	}
 
+	static int clampSafe(int value, int min, int max) {
+		return Math.min(Math.max(value, min), max);
+	}
+
+	static long clampSafe(long value, long min, long max) {
+		return Math.min(Math.max(value, min), max);
+	}
+
+	static float clampSafe(float value, float min, float max) {
+		return Math.min(Math.max(value, min), max);
+	}
+
+	static double clampSafe(double value, double min, double max) {
+		return Math.min(Math.max(value, min), max);
+	}
+
+	static long circularClamp(long value, long min, long max, long totalDegrees) {
+		long result = value;
+		while (result < min) {
+			result += totalDegrees;
+		}
+		while (result > max) {
+			result -= totalDegrees;
+		}
+		return result;
+	}
+
+	static double circularClamp(double value, double min, double max, double totalDegrees) {
+		double result = value;
+		while (result < min) {
+			result += totalDegrees;
+		}
+		while (result > max) {
+			result -= totalDegrees;
+		}
+		return result;
+	}
+
 	static long circularDifference(long value1, long value2, long totalDegrees) {
-		long tempValue1 = value1;
 		final long halfTotalDegrees = totalDegrees / 2;
+		return value1 - circularClamp(value2, value1 - halfTotalDegrees, value1 + halfTotalDegrees, totalDegrees);
+	}
 
-		if (tempValue1 - halfTotalDegrees > value2 || tempValue1 + halfTotalDegrees <= value2) {
-			tempValue1 -= (tempValue1 - halfTotalDegrees - value2) / totalDegrees * totalDegrees;
-		}
-
-		while (tempValue1 - halfTotalDegrees > value2) {
-			tempValue1 -= totalDegrees;
-		}
-
-		while (tempValue1 + halfTotalDegrees <= value2) {
-			tempValue1 += totalDegrees;
-		}
-
-		return tempValue1 - value2;
+	static double circularDifference(double value1, double value2, double totalDegrees) {
+		final double halfTotalDegrees = totalDegrees / 2;
+		return value1 - circularClamp(value2, value1 - halfTotalDegrees, value1 + halfTotalDegrees, totalDegrees);
 	}
 
 	static int compare(long value1, long value2, IntSupplier ifZero) {
@@ -192,16 +246,20 @@ public interface Utilities {
 	static int compare(String value1, String value2, IntSupplier ifZero) {
 		try {
 			return compare(Long.parseLong(value1), Long.parseLong(value2), ifZero);
-		} catch (Exception ignored) {
+		} catch (Exception e) {
+			// Numeric comparison was attempted as a fast path; fall back to lexicographic on
+			// non-numeric input. Logged at debug per CODE_STYLES §3.14.
+			Main.LOGGER.debug("Numeric compare of \"{}\" / \"{}\" failed; falling back to string compare", value1, value2, e);
 			final int result = value1.compareTo(value2);
 			return result == 0 ? ifZero.getAsInt() : result;
 		}
 	}
 
-	static <T> boolean sameItems(Collection<T> collection1, Collection<T> collection2) {
-		return collection1.containsAll(collection2) && collection2.containsAll(collection1);
+	static <T> boolean differentItems(Collection<T> collection1, Collection<T> collection2) {
+		return !collection1.containsAll(collection2) || !collection2.containsAll(collection1);
 	}
 
+	@Nullable
 	static <T> T loopUntilTimeout(Supplier<T> action, long timeoutMillis) {
 		final long startMillis = System.currentTimeMillis();
 		while (System.currentTimeMillis() - startMillis < timeoutMillis) {
@@ -229,8 +287,10 @@ public interface Utilities {
 			while (!executorService.awaitTermination(5, TimeUnit.MINUTES)) {
 				Main.LOGGER.warn("Termination failed, retrying...");
 			}
-		} catch (Exception e) {
-			Main.LOGGER.error("", e);
+		} catch (InterruptedException e) {
+			// Restore the interrupt flag (CODE_STYLES §3.14) so callers can react.
+			Thread.currentThread().interrupt();
+			Main.LOGGER.error("Interrupted while awaiting executor termination", e);
 		}
 	}
 }

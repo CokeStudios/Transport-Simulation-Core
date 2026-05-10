@@ -4,14 +4,13 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectArraySet;
+import org.jspecify.annotations.Nullable;
 import org.mtr.core.data.NameColorDataBase;
 import org.mtr.core.data.Position;
 import org.mtr.core.data.Rail;
 import org.mtr.core.generated.operation.DeleteDataRequestSchema;
 import org.mtr.core.serializer.ReaderBase;
 import org.mtr.core.simulation.Simulator;
-
-import javax.annotation.Nullable;
 
 public final class DeleteDataRequest extends DeleteDataRequestSchema {
 
@@ -63,6 +62,16 @@ public final class DeleteDataRequest extends DeleteDataRequestSchema {
 		return this;
 	}
 
+	public DeleteDataRequest addHomeId(long homeId) {
+		homeIds.add(homeId);
+		return this;
+	}
+
+	public DeleteDataRequest addLandmarkId(long landmarkId) {
+		landmarkIds.add(landmarkId);
+		return this;
+	}
+
 	public DeleteDataResponse delete(Simulator simulator) {
 		final DeleteDataResponse deleteDataResponse = new DeleteDataResponse();
 		final ObjectArraySet<Position> railNodePositionsToUpdate = new ObjectArraySet<>();
@@ -82,6 +91,8 @@ public final class DeleteDataRequest extends DeleteDataRequestSchema {
 		}));
 		railIds.forEach(railId -> delete(simulator.railIdMap.get(railId), simulator.rails, railId, deleteDataResponse.getRailIds(), railNodePositionsToUpdate));
 		railNodePositions.forEach(railNodePosition -> simulator.positionsToRail.getOrDefault(railNodePosition, new Object2ObjectOpenHashMap<>()).values().forEach(rail -> delete(rail, simulator.rails, rail.getHexId(), deleteDataResponse.getRailIds(), railNodePositionsToUpdate)));
+		homeIds.forEach(homeId -> delete(homeId, simulator.homes, deleteDataResponse.getHomeIds()));
+		landmarkIds.forEach(landmarkId -> delete(landmarkId, simulator.landmarks, deleteDataResponse.getLandmarkIds()));
 
 		simulator.sync();
 		railNodePositionsToUpdate.forEach(railNodePosition -> {

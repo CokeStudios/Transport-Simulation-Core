@@ -3,7 +3,7 @@ package org.mtr.core.data;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.*;
-import org.mtr.core.Main;
+import lombok.extern.log4j.Log4j2;
 import org.mtr.core.map.UpdateDynmap;
 import org.mtr.core.map.UpdateSquaremap;
 import org.mtr.core.serializer.SerializedDataBaseWithId;
@@ -14,6 +14,16 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+/**
+ * In-memory model shared between simulator-side ({@link Simulator}) and client-side
+ * ({@link ClientData}) instances.
+ *
+ * <p>Holds the canonical {@link ObjectArraySet}s of every domain entity (stations, platforms,
+ * sidings, routes, depots, lifts, rails, homes, landmarks) plus the cached {@code *IdMap} lookups
+ * those entities expose to each other. {@code Simulator} is the single mutator on the simulation
+ * thread; {@code ClientData} is fed by incoming wire updates.</p>
+ */
+@Log4j2
 public abstract class Data {
 
 	private long currentMillis;
@@ -25,6 +35,8 @@ public abstract class Data {
 	public final ObjectArraySet<Depot> depots = new ObjectArraySet<>();
 	public final ObjectArraySet<Lift> lifts = new ObjectArraySet<>();
 	public final ObjectArraySet<Rail> rails = new ObjectArraySet<>();
+	public final ObjectArraySet<Home> homes = new ObjectArraySet<>();
+	public final ObjectArraySet<Landmark> landmarks = new ObjectArraySet<>();
 
 	public final Long2ObjectOpenHashMap<Station> stationIdMap = new Long2ObjectOpenHashMap<>();
 	public final Long2ObjectOpenHashMap<Platform> platformIdMap = new Long2ObjectOpenHashMap<>();
@@ -33,6 +45,8 @@ public abstract class Data {
 	public final Long2ObjectOpenHashMap<Depot> depotIdMap = new Long2ObjectOpenHashMap<>();
 	public final Long2ObjectOpenHashMap<Lift> liftIdMap = new Long2ObjectOpenHashMap<>();
 	public final Object2ObjectOpenHashMap<String, Rail> railIdMap = new Object2ObjectOpenHashMap<>();
+	public final Long2ObjectOpenHashMap<Home> homeIdMap = new Long2ObjectOpenHashMap<>();
+	public final Long2ObjectOpenHashMap<Landmark> landmarkIdMap = new Long2ObjectOpenHashMap<>();
 
 	public final Object2ObjectOpenHashMap<Position, Object2ObjectOpenHashMap<Position, Rail>> positionsToRail = new Object2ObjectOpenHashMap<>();
 	public final Object2ObjectOpenHashMap<Position, Rail> runwaysInbound = new Object2ObjectOpenHashMap<>();
@@ -86,6 +100,8 @@ public abstract class Data {
 			mapIds(depotIdMap, depots);
 			mapIds(liftIdMap, lifts);
 			mapIds(railIdMap, rails);
+			mapIds(homeIdMap, homes);
+			mapIds(landmarkIdMap, landmarks);
 
 			mapAreasAndSavedRails(platforms, stations);
 			mapAreasAndSavedRails(sidings, depots);
@@ -123,32 +139,66 @@ public abstract class Data {
 			});
 
 			// clear station connections
-			// write station connections
-			stations.forEach(station1 -> {
-				station1.connectedStations.clear();
-				stations.forEach(station2 -> {
-					if (station1 != station2 && station1.intersecting(station2)) {
-						station1.connectedStations.add(station2);
+			// write station connections using spatial grid for efficiency
+			final long gridSize = 500;
+			final Long2ObjectOpenHashMap<ObjectArrayList<Station>> stationGrid = new Long2ObjectOpenHashMap<>();
+			stations.forEach(station -> {
+				station.connectedStations.clear();
+				if (!SimpleAreaBase.validCorners(station)) {
+					return;
+				}
+				final long minCellX = Math.floorDiv(station.getMinX(), gridSize);
+				final long maxCellX = Math.floorDiv(station.getMaxX(), gridSize);
+				final long minCellZ = Math.floorDiv(station.getMinZ(), gridSize);
+				final long maxCellZ = Math.floorDiv(station.getMaxZ(), gridSize);
+				for (long cx = minCellX; cx <= maxCellX; cx++) {
+					for (long cz = minCellZ; cz <= maxCellZ; cz++) {
+						stationGrid.computeIfAbsent((cx << 32) | (cz & 0xFFFFFFFFL), key -> new ObjectArrayList<>()).add(station);
 					}
-				});
+				}
+			});
+			stations.forEach(station1 -> {
+				if (!SimpleAreaBase.validCorners(station1)) {
+					return;
+				}
+				final long minCellX = Math.floorDiv(station1.getMinX(), gridSize);
+				final long maxCellX = Math.floorDiv(station1.getMaxX(), gridSize);
+				final long minCellZ = Math.floorDiv(station1.getMinZ(), gridSize);
+				final long maxCellZ = Math.floorDiv(station1.getMaxZ(), gridSize);
+				for (long cx = minCellX; cx <= maxCellX; cx++) {
+					for (long cz = minCellZ; cz <= maxCellZ; cz++) {
+						final ObjectArrayList<Station> cell = stationGrid.get((cx << 32) | (cz & 0xFFFFFFFFL));
+						if (cell != null) {
+							cell.forEach(station2 -> {
+								if (station1 != station2 && station1.intersecting(station2)) {
+									station1.connectedStations.add(station2);
+								}
+							});
+						}
+					}
+				}
 			});
 
-			if (this instanceof Simulator) {
+			if (this instanceof final Simulator simulator) {
 				try {
-					UpdateSquaremap.updateSquaremap((Simulator) this);
-				} catch (NoClassDefFoundError ignored) {
+					UpdateSquaremap.updateSquaremap(simulator);
+				} catch (NoClassDefFoundError e) {
+					// Squaremap is an optional compile-only dependency — ignore at debug level if absent.
+					log.debug("Squaremap classes not on the classpath; skipping integration", e);
 				} catch (Exception e) {
-					Main.LOGGER.error("", e);
+					log.error("Failed to update Squaremap integration", e);
 				}
 				try {
-					UpdateDynmap.updateDynmap((Simulator) this);
-				} catch (NoClassDefFoundError ignored) {
+					UpdateDynmap.updateDynmap(simulator);
+				} catch (NoClassDefFoundError e) {
+					// Dynmap is an optional compile-only dependency — ignore at debug level if absent.
+					log.debug("Dynmap classes not on the classpath; skipping integration", e);
 				} catch (Exception e) {
-					Main.LOGGER.error("", e);
+					log.error("Failed to update Dynmap integration", e);
 				}
 			}
 		} catch (Exception e) {
-			Main.LOGGER.error("", e);
+			log.error("Failed to sync data after simulation tick", e);
 		}
 	}
 

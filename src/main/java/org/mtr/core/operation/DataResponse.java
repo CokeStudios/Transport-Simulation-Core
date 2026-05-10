@@ -4,7 +4,6 @@ import org.mtr.core.data.*;
 import org.mtr.core.generated.operation.DataResponseSchema;
 import org.mtr.core.serializer.ReaderBase;
 
-import javax.annotation.Nonnull;
 
 public final class DataResponse extends DataResponseSchema {
 
@@ -21,32 +20,38 @@ public final class DataResponse extends DataResponseSchema {
 		updateData(readerBase);
 	}
 
-	@Nonnull
 	@Override
 	protected Data stationsDataParameter() {
 		return data;
 	}
 
-	@Nonnull
 	@Override
 	protected Data platformsDataParameter() {
 		return data;
 	}
 
-	@Nonnull
 	@Override
 	protected Data sidingsDataParameter() {
 		return data;
 	}
 
-	@Nonnull
 	@Override
 	protected Data depotsDataParameter() {
 		return data;
 	}
 
+	@Override
+	protected Data homesDataParameter() {
+		return data;
+	}
+
+	@Override
+	protected Data landmarksDataParameter() {
+		return data;
+	}
+
 	public void write() {
-		if (data instanceof ClientData && (!stations.isEmpty() || !platforms.isEmpty() || !sidings.isEmpty() || !simplifiedRoutes.isEmpty() || !depots.isEmpty() || !rails.isEmpty())) {
+		if (data instanceof ClientData && (!stations.isEmpty() || !platforms.isEmpty() || !sidings.isEmpty() || !simplifiedRoutes.isEmpty() || !depots.isEmpty() || !rails.isEmpty() || !homes.isEmpty() || !landmarks.isEmpty())) {
 			data.stations.removeIf(station -> !stationsToKeep.contains(station.getId()));
 			data.stations.addAll(stations);
 			data.platforms.removeIf(platform -> !platformsToKeep.contains(platform.getId()));
@@ -59,6 +64,10 @@ public final class DataResponse extends DataResponseSchema {
 			data.depots.addAll(depots);
 			data.rails.removeIf(rail -> !railsToKeep.contains(rail.getHexId()));
 			data.rails.addAll(rails);
+			data.homes.removeIf(home -> !homesToKeep.contains(home.getId()));
+			data.homes.addAll(homes);
+			data.landmarks.removeIf(landmark -> !landmarksToKeep.contains(landmark.getId()));
+			data.landmarks.addAll(landmarks);
 			data.sync();
 		}
 	}
@@ -109,5 +118,21 @@ public final class DataResponse extends DataResponseSchema {
 
 	void addRail(String railId) {
 		railsToKeep.add(railId);
+	}
+
+	void addHome(Home home) {
+		homes.add(home);
+	}
+
+	void addHome(long homeId) {
+		homesToKeep.add(homeId);
+	}
+
+	void addLandmark(Landmark landmark) {
+		landmarks.add(landmark);
+	}
+
+	void addLandmark(long landmarkId) {
+		landmarksToKeep.add(landmarkId);
 	}
 }

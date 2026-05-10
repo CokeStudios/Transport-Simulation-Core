@@ -1,100 +1,51 @@
 package org.mtr.core.data;
 
 import it.unimi.dsi.fastutil.objects.ObjectArraySet;
-import org.mtr.core.generated.data.AreaBaseSchema;
 import org.mtr.core.serializer.ReaderBase;
-import org.mtr.core.tool.Utilities;
 import org.mtr.legacy.data.DataFixer;
 
-import javax.annotation.Nullable;
+/**
+ * Common state for any rectangular area in the world that owns a set of
+ * {@link SavedRailBase}s &mdash; today that's {@link Station} (whose owned rails are
+ * {@link Platform}s) and {@link Depot} (whose owned rails are {@link Siding}s).
+ *
+ * <p>The two-corner rectangle ({@code position1} / {@code position2}, inherited from
+ * {@link SimpleAreaBase}) defines the area's footprint; {@link #savedRails} caches every
+ * rail whose track passes through it, populated lazily by the simulator.</p>
+ *
+ * @param <T> the concrete area subtype (curiously-recurring template parameter for
+ *            self-referential generics)
+ * @param <U> the concrete {@link SavedRailBase} subtype this area owns
+ */
+public abstract class AreaBase<T extends AreaBase<T, U>, U extends SavedRailBase<U, T>> extends SimpleAreaBase {
 
-public abstract class AreaBase<T extends AreaBase<T, U>, U extends SavedRailBase<U, T>> extends AreaBaseSchema {
-
+	/**
+	 * Rails inside this area's bounding box, populated by the simulator on tick.
+	 */
 	public final ObjectArraySet<U> savedRails = new ObjectArraySet<>();
 
+	/**
+	 * Construct a fresh area.
+	 *
+	 * @param transportMode the area's transport mode (train, boat, &hellip;)
+	 * @param data          the owning {@link Data} container (typically the {@code Simulator})
+	 */
 	public AreaBase(TransportMode transportMode, Data data) {
 		super(transportMode, data);
 	}
 
+	/**
+	 * Reconstruct an area from its serialised form, applying any legacy data fixers needed
+	 * for older save versions.
+	 *
+	 * @param readerBase the source of the serialised representation
+	 * @param data       the owning {@link Data} container (typically the {@code Simulator})
+	 */
 	public AreaBase(ReaderBase readerBase, Data data) {
 		super(readerBase, data);
 		DataFixer.unpackAreaBasePositions(readerBase, (value1, value2) -> {
 			position1 = value1;
 			position2 = value2;
 		});
-	}
-
-	@Override
-	protected final Position getDefaultPosition1() {
-		return new Position(0, 0, 0);
-	}
-
-	@Override
-	protected final Position getDefaultPosition2() {
-		return new Position(0, 0, 0);
-	}
-
-	@Override
-	public boolean isValid() {
-		return !name.isEmpty();
-	}
-
-	public long getMinX() {
-		return Math.min(position1.getX(), position2.getX());
-	}
-
-	public long getMaxX() {
-		return Math.max(position1.getX(), position2.getX());
-	}
-
-	public long getMinY() {
-		return Math.min(position1.getY(), position2.getY());
-	}
-
-	public long getMaxY() {
-		return Math.max(position1.getY(), position2.getY());
-	}
-
-	public long getMinZ() {
-		return Math.min(position1.getZ(), position2.getZ());
-	}
-
-	public long getMaxZ() {
-		return Math.max(position1.getZ(), position2.getZ());
-	}
-
-	public void setCorners(Position position1, Position position2) {
-		this.position1 = position1;
-		this.position2 = position2;
-	}
-
-	public boolean inArea(Position position) {
-		return inArea(position, 0);
-	}
-
-	public boolean inArea(Position position, double padding) {
-		return validCorners(this) && Utilities.isBetween(position, position1, position2, padding);
-	}
-
-	public boolean intersecting(AreaBase<T, U> areaBase) {
-		return validCorners(this) && validCorners(areaBase) && (inThis(areaBase) || areaBase.inThis(this));
-	}
-
-	public Position getCenter() {
-		return validCorners(this) ? new Position((position1.getX() + position2.getX()) / 2, (position1.getY() + position2.getY()) / 2, (position1.getZ() + position2.getZ()) / 2) : null;
-	}
-
-	private boolean inThis(AreaBase<T, U> areaBase) {
-		final long x1 = areaBase.position1.getX();
-		final long y1 = areaBase.position1.getY();
-		final long z1 = areaBase.position1.getZ();
-		final long x2 = areaBase.position2.getX();
-		final long y2 = areaBase.position2.getY();
-		final long z2 = areaBase.position2.getZ();
-		return inArea(areaBase.position1) || inArea(areaBase.position2) || inArea(new Position(x1, y1, z2)) || inArea(new Position(x1, y2, z1)) || inArea(new Position(x1, y2, z2)) || inArea(new Position(x2, y1, z1)) || inArea(new Position(x2, y1, z2)) || inArea(new Position(x2, y2, z1));
-	}
-
-	public static <T extends AreaBase<T, U>, U extends SavedRailBase<U, T>> boolean validCorners(@Nullable AreaBase<T, U> areaBase) {
-		return areaBase != null && areaBase.position1 != null && areaBase.position2 != null;
 	}
 }

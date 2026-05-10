@@ -4,18 +4,19 @@ import it.unimi.dsi.fastutil.ints.IntConsumer;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.objects.Object2ObjectArrayMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import org.msgpack.core.MessageBufferPacker;
+import org.msgpack.core.MessagePack;
+import org.msgpack.core.MessageUnpacker;
+import org.msgpack.value.Value;
 import org.mtr.core.Main;
 import org.mtr.core.data.*;
+import org.mtr.core.path.SidingPathFinder;
 import org.mtr.core.serializer.MessagePackReader;
 import org.mtr.core.serializer.MessagePackWriter;
 import org.mtr.core.serializer.ReaderBase;
 import org.mtr.core.serializer.WriterBase;
 import org.mtr.core.tool.Angle;
 import org.mtr.core.tool.Utilities;
-import org.mtr.libraries.org.msgpack.core.MessageBufferPacker;
-import org.mtr.libraries.org.msgpack.core.MessagePack;
-import org.mtr.libraries.org.msgpack.core.MessageUnpacker;
-import org.mtr.libraries.org.msgpack.value.Value;
 
 import java.util.Locale;
 import java.util.function.BiConsumer;
@@ -123,10 +124,10 @@ public final class DataFixer {
 						vehicleId = trainId;
 					}
 					vehicleCars.add(new VehicleCar(
-							vehicleId.toLowerCase(Locale.ENGLISH),
-							trainLength, trainWidth,
-							-bogiePosition, bogiePosition,
-							(type & 0b01) == 0 ? 0 : 1, (type & 0b10) == 0 ? 0 : 1
+						vehicleId.toLowerCase(Locale.ENGLISH),
+						trainLength, trainWidth,
+						-bogiePosition, bogiePosition,
+						(type & 0b01) == 0 ? 0 : 1, (type & 0b10) == 0 ? 0 : 1
 					));
 				}
 			} catch (Exception ignored) {
@@ -218,9 +219,9 @@ public final class DataFixer {
 
 	private static Position convertPosition(long packedPosition) {
 		return new Position(
-				(int) (packedPosition << 64 - X_OFFSET - PACKED_X_LENGTH >> 64 - PACKED_X_LENGTH),
-				(int) (packedPosition << 64 - PACKED_Y_LENGTH >> 64 - PACKED_Y_LENGTH),
-				(int) (packedPosition << 64 - Z_OFFSET - PACKED_Z_LENGTH >> 64 - PACKED_Z_LENGTH)
+			(int) (packedPosition << 64 - X_OFFSET - PACKED_X_LENGTH >> 64 - PACKED_X_LENGTH),
+			(int) (packedPosition << 64 - PACKED_Y_LENGTH >> 64 - PACKED_Y_LENGTH),
+			(int) (packedPosition << 64 - Z_OFFSET - PACKED_Z_LENGTH >> 64 - PACKED_Z_LENGTH)
 		);
 	}
 
@@ -233,7 +234,7 @@ public final class DataFixer {
 				readerBase.merge(new MessagePackReader(messageUnpacker));
 			}
 		} catch (Exception e) {
-			Main.LOGGER.error("", e);
+			Main.LOGGER.error("Failed to apply legacy data fixer", e);
 		}
 	}
 
@@ -252,7 +253,7 @@ public final class DataFixer {
 		CABLE_CAR(30, false, true, true, Rail.Shape.CABLE),
 		CABLE_CAR_STATION(2, false, true, true, Rail.Shape.QUADRATIC),
 		RUNWAY(300, false, true, false, Rail.Shape.QUADRATIC),
-		AIRPLANE_DUMMY(900, false, true, false, Rail.Shape.QUADRATIC),
+		AIRPLANE_DUMMY(SidingPathFinder.AIRPLANE_SPEED, false, true, false, Rail.Shape.QUADRATIC),
 		NONE(0, false, false, true, Rail.Shape.QUADRATIC);
 
 		public final int speedLimitKilometersPerHour;

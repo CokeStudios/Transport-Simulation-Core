@@ -1,13 +1,27 @@
 package org.mtr.core.data;
 
+import org.jspecify.annotations.Nullable;
 import org.mtr.core.generated.data.SavedRailBaseSchema;
 import org.mtr.core.serializer.ReaderBase;
 import org.mtr.core.tool.Utilities;
 import org.mtr.legacy.data.DataFixer;
 
+/**
+ * Common state for a piece of track owned by an {@link AreaBase} &mdash; today either a
+ * {@link Platform} (owned by a {@link Station}) or a {@link Siding} (owned by a
+ * {@link Depot}).
+ *
+ * <p>Holds the two-position track segment (inherited from
+ * {@link org.mtr.core.generated.data.SavedRailBaseSchema SavedRailBaseSchema}) and a back-reference
+ * to its owning area, set by the simulator once the area / rail association has been resolved
+ * from positions.</p>
+ *
+ * @param <T> the concrete subtype (curiously-recurring template parameter)
+ * @param <U> the {@link AreaBase} subtype that owns this rail
+ */
 public abstract class SavedRailBase<T extends SavedRailBase<T, U>, U extends AreaBase<U, T>> extends SavedRailBaseSchema {
 
-	public U area;
+	public @Nullable U area;
 
 	public SavedRailBase(Position position1, Position position2, TransportMode transportMode, Data data) {
 		super(position1, position2, transportMode, data);
@@ -57,9 +71,9 @@ public abstract class SavedRailBase<T extends SavedRailBase<T, U>, U extends Are
 			final double[] previousPosition = {0, 0, 0};
 			final double[] closestDistance = {Double.MAX_VALUE};
 
-			rail.railMath.render((x1, z1, x2, z2, x3, z3, x4, z4, y1, y2) -> {
+			rail.railMath.render((x1, y1, z1, x2, y2, z2, x3, y3, z3, x4, y4, z4, tiltAngle) -> {
 				iterateAndCheckDistance(x1, y1, z1, previousPosition, position, closestDistance);
-				iterateAndCheckDistance(x3, y2, z3, previousPosition, position, closestDistance);
+				iterateAndCheckDistance(x3, y3, z3, previousPosition, position, closestDistance);
 			}, 1, 0, 0);
 
 			return closestDistance[0];
